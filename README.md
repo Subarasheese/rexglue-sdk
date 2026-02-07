@@ -170,7 +170,7 @@ This project is not intended to promote piracy nor unauthorized use of copyright
 - [Tom (crack)](https://github.com/tomcl7) - Lead developer and project founder. Creator of the recompiler and core architecture of ReXGlue.
 - [Loreaxe](https://github.com/Loreaxe) - Testing on various hardware and helping found the project.
 - [Soren/Roxxsen](https://github.com/Roxxsen) - Lead project manager and git maintainer.
-- [Toby](https://github.com/TbyDtch) - Grahpic designer.
+- [Toby](https://github.com/TbyDtch) - Graphic designer.
 
 ## Very Special Thank You:
 - [Project Xenia](https://github.com/xenia-project/xenia/tree/master/src/xenia) - Their invaluable work on Xbox 360 emulation laid the groundwork for ReXGlue's development. This project (and numerous others) would not exist without their hard work and dedication.
