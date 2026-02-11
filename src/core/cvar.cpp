@@ -368,11 +368,10 @@ std::vector<std::string> Init(int argc, char** argv) {
     try {
         app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {
-        REXLOG_WARN("cvar: CLI parse issue: {}", e.what());
+        // TODO(tomc): dumb workaround for the stupid chicken and its egg.
+        //             dont call rex logging funcs here for now.
+        fprintf(stderr, "cvar: CLI11  parse error: %s\n", e.what());
     }
-
-    REXLOG_DEBUG("cvar: parsed command line, {} cvars registered",
-                 GetRegistryStorage().size());
 
     return app.remaining();
 }
