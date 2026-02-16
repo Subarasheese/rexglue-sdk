@@ -353,6 +353,12 @@ bool build_vminuh(BuilderContext& ctx)
     return true;
 }
 
+bool build_vsubsbs(BuilderContext& ctx)
+{
+    ctx.emit_vec_int_binary("subs_epi8", "s8");
+    return true;
+}
+
 bool build_vsubshs(BuilderContext& ctx)
 {
     ctx.emit_vec_int_binary("subs_epi16", "s16");
