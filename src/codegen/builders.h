@@ -445,6 +445,7 @@ bool build_vsubsws(BuilderContext& ctx);
 bool build_vsububm(BuilderContext& ctx);
 bool build_vsububs(BuilderContext& ctx);
 bool build_vsubuws(BuilderContext& ctx);
+bool build_vsubuhs(BuilderContext& ctx);
 bool build_vsubuhm(BuilderContext& ctx);
 bool build_vsubuwm(BuilderContext& ctx);
 bool build_vmaxsh(BuilderContext& ctx);
