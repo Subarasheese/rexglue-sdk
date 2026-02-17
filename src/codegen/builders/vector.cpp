@@ -353,6 +353,12 @@ bool build_vminsh(BuilderContext& ctx)
     return true;
 }
 
+bool build_vminsw(BuilderContext& ctx)
+{
+    ctx.emit_vec_int_binary("min_epi32", "s32");
+    return true;
+}
+
 bool build_vmaxuh(BuilderContext& ctx)
 {
     ctx.emit_vec_int_binary("max_epu16", "u16");

@@ -452,6 +452,7 @@ bool build_vmaxsh(BuilderContext& ctx);
 bool build_vmaxsw(BuilderContext& ctx);
 bool build_vmaxuh(BuilderContext& ctx);
 bool build_vminsh(BuilderContext& ctx);
+bool build_vminsw(BuilderContext& ctx);
 bool build_vminuh(BuilderContext& ctx);
 
 // Vector average
