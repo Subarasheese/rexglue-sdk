@@ -8,7 +8,6 @@ include(CMakeFindDependencyMacro)
 # Required dependencies
 find_dependency(fmt CONFIG)
 find_dependency(spdlog CONFIG)
-find_dependency(date CONFIG)
 find_dependency(Snappy CONFIG)
 find_dependency(utf8cpp CONFIG)
 find_dependency(SDL2 CONFIG)
