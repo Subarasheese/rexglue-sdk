@@ -39,7 +39,6 @@ Latest SDK builds and releases are published on [GitHub Releases](https://github
 - Clang 20
 - CMake
 - Ninja
-- [vcpkg](https://github.com/microsoft/vcpkg)
 - Latest Release from [Releases](https://github.com/rexglue/rexglue-sdk/releases)
 
 ### Installing the SDK
