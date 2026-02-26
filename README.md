@@ -32,43 +32,7 @@ Latest SDK builds and releases are published on [GitHub Releases](https://github
 
 ## Quickstart
 
-### Prerequisites (non-Visual Studio users only)
-
-- Clang 20
-- CMake
-- Ninja
-- Latest Release from [Releases](https://github.com/rexglue/rexglue-sdk/releases)
-
-### Installing the SDK
-Download the latest release and extract it to a location of your choice. This will be your `REXSDK` path. Set this as an environment variable using your preferred method.
-
-#### Building from source
-
-```bash
-git clone --recursive https://github.com/rexglue/rexglue-sdk
-cd rexglue
-cmake --preset <platform>
-cmake --build out/build/<platform> --target install
-```
-
-This will perform a multi-config build and put the SDK at `out/install/<platform>`. You may move this folder and then set this path on your environment variable as `REXSDK` using your preferred method (system or CMakeUserPresets.json in your target project).
-
-
-### Creating a project
-
-```bash
-rexglue init --app_name <project name> --app_root <project root path>
-```
-
-This generates a project with `CMakeLists.txt`, `CMakePresets.json`, a starter `main.cpp`, and a `<project>_config.toml` for the codegen pipeline. Ensure the SDK install path is set as the `REXSDK` environment variable before running CMake.
-
-### Running codegen
-
-```bash
-rexglue codegen <project>_config.toml
-```
-
-For full CLI reference and config file options, see the [wiki](https://github.com/rexglue/rexglue-sdk/wiki).
+For quick start guide, full CLI reference, and config file options, see the [wiki](https://github.com/rexglue/rexglue-sdk/wiki).
 
 # **Disclaimer**
 ReXGlue is not affiliated with nor endorsed by Microsoft or Xbox. It is an independent project created for educational and development purposes. All trademarks and copyrights belong to their respective owners. 
