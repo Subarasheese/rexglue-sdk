@@ -395,6 +395,9 @@ bool build_dcbst(BuilderContext& ctx);
 // Move register
 bool build_mr(BuilderContext& ctx);
 
+// Move register field
+bool build_mcrf(BuilderContext& ctx);
+
 // Move from special registers
 bool build_mfcr(BuilderContext& ctx);
 bool build_mfocrf(BuilderContext& ctx);

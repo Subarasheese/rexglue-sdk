@@ -191,6 +191,16 @@ bool build_mr(BuilderContext& ctx) {
 }
 
 //=============================================================================
+// Move Register Field
+//=============================================================================
+
+bool build_mcrf(BuilderContext& ctx) {
+  // Trivally copy one Control Register Field to another:
+  ctx.println("\t{0} = {1};", ctx.cr(ctx.insn.operands[0]), ctx.cr(ctx.insn.operands[1]));
+  return true;
+}
+
+//=============================================================================
 // Move From Special Registers
 //=============================================================================
 
