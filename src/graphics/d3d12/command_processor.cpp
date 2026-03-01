@@ -4861,13 +4861,18 @@ bool D3D12CommandProcessor::AcquireOcclusionQueryIndex(uint32_t& host_index_out)
 
 void D3D12CommandProcessor::DisableHostOcclusionQueries() {
   if (active_occlusion_query_.valid && occlusion_query_heap_) {
+    uint32_t host_index = active_occlusion_query_.host_index;
+    // Clear before EndSubmission to prevent the EndSubmission safety net from issuing a second
+    // EndQuery for the same index.
+    active_occlusion_query_ = {};
     if (BeginSubmission(true)) {
       deferred_command_list_.D3DEndQuery(occlusion_query_heap_.Get(), D3D12_QUERY_TYPE_OCCLUSION,
-                                         active_occlusion_query_.host_index);
+                                         host_index);
       EndSubmission(false);
     }
+  } else {
+    active_occlusion_query_ = {};
   }
-  active_occlusion_query_ = {};
   occlusion_query_cursor_ = 0;
   occlusion_query_resources_available_ = false;
 }
