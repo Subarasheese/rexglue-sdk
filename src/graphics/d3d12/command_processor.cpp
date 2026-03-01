@@ -3166,6 +3166,59 @@ void D3D12CommandProcessor::CheckSubmissionFence(uint64_t await_submission) {
   texture_cache_->CompletedSubmissionUpdated(submission_completed_);
 }
 
+void D3D12CommandProcessor::LogDeviceRemovalDiagnostics(ID3D12Device* device, HRESULT reason) {
+  const char* reason_str = "Unknown";
+  switch (reason) {
+    case DXGI_ERROR_DEVICE_HUNG:
+      reason_str = "DEVICE_HUNG (TDR - GPU command took too long)";
+      break;
+    case DXGI_ERROR_DEVICE_REMOVED:
+      reason_str = "DEVICE_REMOVED (driver internal error or hot-unplug)";
+      break;
+    case DXGI_ERROR_DEVICE_RESET:
+      reason_str = "DEVICE_RESET (bad GPU command)";
+      break;
+    case DXGI_ERROR_DRIVER_INTERNAL_ERROR:
+      reason_str = "DRIVER_INTERNAL_ERROR";
+      break;
+    case DXGI_ERROR_INVALID_CALL:
+      reason_str = "INVALID_CALL";
+      break;
+  }
+  REXGPU_ERROR("D3D12 device removed: HRESULT 0x{:08X} - {}", static_cast<unsigned>(reason),
+               reason_str);
+
+  Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedData> dred;
+  if (FAILED(device->QueryInterface(IID_PPV_ARGS(&dred)))) {
+    return;
+  }
+
+  D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT breadcrumbs = {};
+  if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput(&breadcrumbs))) {
+    for (const D3D12_AUTO_BREADCRUMB_NODE* node = breadcrumbs.pHeadAutoBreadcrumbNode; node;
+         node = node->pNext) {
+      if (!node->pLastBreadcrumbValue || !node->pCommandHistory ||
+          *node->pLastBreadcrumbValue == 0) {
+        continue;
+      }
+      REXGPU_ERROR("DRED breadcrumb: completed {} of {} ops", *node->pLastBreadcrumbValue,
+                   node->BreadcrumbCount);
+      uint32_t last = std::min(*node->pLastBreadcrumbValue, node->BreadcrumbCount);
+      uint32_t start = last > 3 ? last - 3 : 0;
+      uint32_t end = std::min(last + 1, node->BreadcrumbCount);
+      for (uint32_t i = start; i < end; i++) {
+        REXGPU_ERROR("  [{}] op type {}{}", i, static_cast<int>(node->pCommandHistory[i]),
+                     i == last ? " <-- FAULT" : "");
+      }
+    }
+  }
+
+  D3D12_DRED_PAGE_FAULT_OUTPUT page_fault = {};
+  if (SUCCEEDED(dred->GetPageFaultAllocationOutput(&page_fault)) && page_fault.PageFaultVA != 0) {
+    REXGPU_ERROR("DRED page fault at VA 0x{:016X}", page_fault.PageFaultVA);
+  }
+}
+
 bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
 #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
   SCOPE_profile_cpu_f("gpu");
@@ -3185,6 +3238,7 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
   HRESULT device_removed_reason = device->GetDeviceRemovedReason();
   if (FAILED(device_removed_reason)) {
     device_removed_ = true;
+    LogDeviceRemovalDiagnostics(device, device_removed_reason);
     graphics_system_->OnHostGpuLossFromAnyThread(device_removed_reason !=
                                                  DXGI_ERROR_DEVICE_REMOVED);
     return false;

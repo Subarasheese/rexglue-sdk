@@ -337,6 +337,7 @@ class D3D12CommandProcessor : public CommandProcessor {
     CheckSubmissionFence(submission_current_);
     return submission_completed_ + 1 >= submission_current_;
   }
+  void LogDeviceRemovalDiagnostics(ID3D12Device* device, HRESULT reason);
   // Need to await submission completion before calling.
   void ClearCommandAllocatorCache();
 
