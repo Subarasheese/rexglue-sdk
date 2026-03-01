@@ -67,6 +67,10 @@ REXCVAR_DECLARE(bool, force_convert_quad_lists_to_triangle_lists);
 REXCVAR_DECLARE(bool, force_convert_triangle_fans_to_lists);
 REXCVAR_DECLARE(int32_t, primitive_processor_cache_min_indices);
 
+// GPU Debug
+REXCVAR_DECLARE(bool, gpu_debug_markers);
+bool IsGpuDebugMarkersEnabled();
+
 // GPU Shader Translation / Tracing
 REXCVAR_DECLARE(std::string, dump_shaders);
 REXCVAR_DECLARE(bool, dxbc_switch);

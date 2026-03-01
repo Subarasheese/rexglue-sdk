@@ -396,6 +396,29 @@ class DeferredCommandList {
         std::min(num_samples_per_pixel * num_pixels, UINT(16)) * sizeof(D3D12_SAMPLE_POSITION));
   }
 
+  void BeginDebugMarker(const char* label_name) {
+    size_t label_len = std::strlen(label_name);
+    uint8_t* args_ptr = reinterpret_cast<uint8_t*>(WriteCommand(
+        Command::kBeginDebugMarker, sizeof(DebugMarkerHeader) + label_len + 1));
+    auto& args = *reinterpret_cast<DebugMarkerHeader*>(args_ptr);
+    args.label_length = static_cast<uint32_t>(label_len);
+    std::memcpy(args_ptr + sizeof(DebugMarkerHeader), label_name,
+                label_len + 1);
+  }
+
+  void EndDebugMarker() { WriteCommand(Command::kEndDebugMarker, 0); }
+
+  void InsertDebugMarker(const char* label_name) {
+    size_t label_len = std::strlen(label_name);
+    uint8_t* args_ptr = reinterpret_cast<uint8_t*>(WriteCommand(
+        Command::kInsertDebugMarker,
+        sizeof(DebugMarkerHeader) + label_len + 1));
+    auto& args = *reinterpret_cast<DebugMarkerHeader*>(args_ptr);
+    args.label_length = static_cast<uint32_t>(label_len);
+    std::memcpy(args_ptr + sizeof(DebugMarkerHeader), label_name,
+                label_len + 1);
+  }
+
  private:
   enum class Command {
     kD3DClearDepthStencilView,
@@ -432,6 +455,9 @@ class DeferredCommandList {
     kD3DSetPipelineState,
     kSetPipelineStateHandle,
     kD3DSetSamplePositions,
+    kBeginDebugMarker,
+    kEndDebugMarker,
+    kInsertDebugMarker,
   };
 
   struct CommandHeader {
@@ -569,6 +595,11 @@ class DeferredCommandList {
     UINT num_samples_per_pixel;
     UINT num_pixels;
     D3D12_SAMPLE_POSITION sample_positions[16];
+  };
+
+  struct DebugMarkerHeader {
+    uint32_t label_length;
+    // Followed by null-terminated label string.
   };
 
   void* WriteCommand(Command command, size_t arguments_size_bytes);

@@ -338,6 +338,13 @@ class D3D12CommandProcessor : public CommandProcessor {
     return submission_completed_ + 1 >= submission_current_;
   }
   void LogDeviceRemovalDiagnostics(ID3D12Device* device, HRESULT reason);
+
+  void UpdateDebugMarkersEnabled();
+  void PushDebugMarker(const char* format, ...);
+  void PopDebugMarker();
+  void InsertDebugMarker(const char* format, ...);
+  bool debug_markers_enabled() const { return debug_markers_enabled_; }
+
   // Need to await submission completion before calling.
   void ClearCommandAllocatorCache();
 
@@ -459,6 +466,8 @@ class D3D12CommandProcessor : public CommandProcessor {
   ID3D12GraphicsCommandList* command_list_ = nullptr;
   ID3D12GraphicsCommandList1* command_list_1_ = nullptr;
   DeferredCommandList deferred_command_list_;
+
+  bool debug_markers_enabled_ = false;
 
   // Should bindless textures and samplers be used - many times faster
   // UpdateBindings than bindful (that becomes a significant bottleneck with

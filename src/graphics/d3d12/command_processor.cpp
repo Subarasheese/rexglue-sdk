@@ -10,6 +10,7 @@
  */
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstring>
 #include <sstream>
 #include <utility>
@@ -64,6 +65,41 @@ D3D12CommandProcessor::D3D12CommandProcessor(D3D12GraphicsSystem* graphics_syste
   legacy_readback_memexport_cvar_name_ = "d3d12_readback_memexport";
 }
 D3D12CommandProcessor::~D3D12CommandProcessor() = default;
+
+void D3D12CommandProcessor::UpdateDebugMarkersEnabled() {
+  debug_markers_enabled_ = IsGpuDebugMarkersEnabled();
+}
+
+void D3D12CommandProcessor::PushDebugMarker(const char* format, ...) {
+  if (!debug_markers_enabled_) {
+    return;
+  }
+  char label[256];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(label, sizeof(label), format, args);
+  va_end(args);
+  deferred_command_list_.BeginDebugMarker(label);
+}
+
+void D3D12CommandProcessor::PopDebugMarker() {
+  if (!debug_markers_enabled_) {
+    return;
+  }
+  deferred_command_list_.EndDebugMarker();
+}
+
+void D3D12CommandProcessor::InsertDebugMarker(const char* format, ...) {
+  if (!debug_markers_enabled_) {
+    return;
+  }
+  char label[256];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(label, sizeof(label), format, args);
+  va_end(args);
+  deferred_command_list_.InsertDebugMarker(label);
+}
 
 void D3D12CommandProcessor::ClearCaches() {
   CommandProcessor::ClearCaches();
@@ -845,6 +881,7 @@ bool D3D12CommandProcessor::SetupContext() {
     return false;
   }
   InvalidateAllVertexBufferResidency();
+  UpdateDebugMarkersEnabled();
 
   const ui::d3d12::D3D12Provider& provider = GetD3D12Provider();
   ID3D12Device* device = provider.GetDevice();
