@@ -28,7 +28,7 @@
 
 REXCVAR_DEFINE_BOOL(half_pixel_offset, true, "GPU", "Enable half pixel offset");
 
-REXCVAR_DEFINE_BOOL(resolve_resolution_scale_fill_half_pixel_offset, false, "GPU",
+REXCVAR_DEFINE_BOOL(resolve_resolution_scale_fill_half_pixel_offset, true, "GPU",
                     "Fill half pixel offset during resolution scale resolve");
 
 // Very prominent in 545407F2.
