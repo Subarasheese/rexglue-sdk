@@ -71,6 +71,9 @@ REXCVAR_DECLARE(int32_t, primitive_processor_cache_min_indices);
 REXCVAR_DECLARE(bool, gpu_debug_markers);
 bool IsGpuDebugMarkersEnabled();
 
+// GPU Alpha Test
+REXCVAR_DECLARE(bool, use_fuzzy_alpha_epsilon);
+
 // GPU Shader Translation / Tracing
 REXCVAR_DECLARE(std::string, dump_shaders);
 REXCVAR_DECLARE(bool, dxbc_switch);

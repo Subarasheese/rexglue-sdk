@@ -1470,7 +1470,16 @@ bool D3D12TextureCache::IsScaledResolveSupportedForFormat(TextureKey key) const 
 }
 
 uint32_t D3D12TextureCache::GetHostFormatSwizzle(TextureKey key) const {
-  return host_formats_[uint32_t(key.format)].swizzle;
+  // Dense cache-line-aligned swizzle array avoids cache misses from accessing
+  // the full HostFormat struct on every texture fetch.
+  alignas(64) static const auto swizzle_cache = []() {
+    std::array<uint16_t, 64> arr{};
+    for (int i = 0; i < 64; ++i) {
+      arr[i] = static_cast<uint16_t>(host_formats_[i].swizzle);
+    }
+    return arr;
+  }();
+  return swizzle_cache[uint32_t(key.format)];
 }
 
 uint32_t D3D12TextureCache::GetMaxHostTextureWidthHeight(xenos::DataDimension dimension) const {
