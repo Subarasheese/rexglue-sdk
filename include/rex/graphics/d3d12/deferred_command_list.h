@@ -353,6 +353,41 @@ class DeferredCommandList {
     args.base_descriptor.ptr = base_descriptor.ptr;
   }
 
+  void D3DSetComputeRootShaderResourceView(UINT root_parameter_index,
+                                           D3D12_GPU_VIRTUAL_ADDRESS buffer_location) {
+    auto& args = *reinterpret_cast<SetRootConstantBufferViewArguments*>(WriteCommand(
+        Command::kD3DSetComputeRootShaderResourceView, sizeof(SetRootConstantBufferViewArguments)));
+    args.root_parameter_index = root_parameter_index;
+    args.buffer_location = buffer_location;
+  }
+
+  void D3DSetGraphicsRootShaderResourceView(UINT root_parameter_index,
+                                            D3D12_GPU_VIRTUAL_ADDRESS buffer_location) {
+    auto& args = *reinterpret_cast<SetRootConstantBufferViewArguments*>(
+        WriteCommand(Command::kD3DSetGraphicsRootShaderResourceView,
+                     sizeof(SetRootConstantBufferViewArguments)));
+    args.root_parameter_index = root_parameter_index;
+    args.buffer_location = buffer_location;
+  }
+
+  void D3DSetComputeRootUnorderedAccessView(UINT root_parameter_index,
+                                            D3D12_GPU_VIRTUAL_ADDRESS buffer_location) {
+    auto& args = *reinterpret_cast<SetRootConstantBufferViewArguments*>(
+        WriteCommand(Command::kD3DSetComputeRootUnorderedAccessView,
+                     sizeof(SetRootConstantBufferViewArguments)));
+    args.root_parameter_index = root_parameter_index;
+    args.buffer_location = buffer_location;
+  }
+
+  void D3DSetGraphicsRootUnorderedAccessView(UINT root_parameter_index,
+                                             D3D12_GPU_VIRTUAL_ADDRESS buffer_location) {
+    auto& args = *reinterpret_cast<SetRootConstantBufferViewArguments*>(
+        WriteCommand(Command::kD3DSetGraphicsRootUnorderedAccessView,
+                     sizeof(SetRootConstantBufferViewArguments)));
+    args.root_parameter_index = root_parameter_index;
+    args.buffer_location = buffer_location;
+  }
+
   void D3DSetComputeRootSignature(ID3D12RootSignature* root_signature) {
     auto& arg = *reinterpret_cast<ID3D12RootSignature**>(
         WriteCommand(Command::kD3DSetComputeRootSignature, sizeof(ID3D12RootSignature*)));
@@ -398,25 +433,22 @@ class DeferredCommandList {
 
   void BeginDebugMarker(const char* label_name) {
     size_t label_len = std::strlen(label_name);
-    uint8_t* args_ptr = reinterpret_cast<uint8_t*>(WriteCommand(
-        Command::kBeginDebugMarker, sizeof(DebugMarkerHeader) + label_len + 1));
+    uint8_t* args_ptr = reinterpret_cast<uint8_t*>(
+        WriteCommand(Command::kBeginDebugMarker, sizeof(DebugMarkerHeader) + label_len + 1));
     auto& args = *reinterpret_cast<DebugMarkerHeader*>(args_ptr);
     args.label_length = static_cast<uint32_t>(label_len);
-    std::memcpy(args_ptr + sizeof(DebugMarkerHeader), label_name,
-                label_len + 1);
+    std::memcpy(args_ptr + sizeof(DebugMarkerHeader), label_name, label_len + 1);
   }
 
   void EndDebugMarker() { WriteCommand(Command::kEndDebugMarker, 0); }
 
   void InsertDebugMarker(const char* label_name) {
     size_t label_len = std::strlen(label_name);
-    uint8_t* args_ptr = reinterpret_cast<uint8_t*>(WriteCommand(
-        Command::kInsertDebugMarker,
-        sizeof(DebugMarkerHeader) + label_len + 1));
+    uint8_t* args_ptr = reinterpret_cast<uint8_t*>(
+        WriteCommand(Command::kInsertDebugMarker, sizeof(DebugMarkerHeader) + label_len + 1));
     auto& args = *reinterpret_cast<DebugMarkerHeader*>(args_ptr);
     args.label_length = static_cast<uint32_t>(label_len);
-    std::memcpy(args_ptr + sizeof(DebugMarkerHeader), label_name,
-                label_len + 1);
+    std::memcpy(args_ptr + sizeof(DebugMarkerHeader), label_name, label_len + 1);
   }
 
  private:
@@ -449,8 +481,12 @@ class DeferredCommandList {
     kD3DSetGraphicsRootConstantBufferView,
     kD3DSetComputeRootDescriptorTable,
     kD3DSetGraphicsRootDescriptorTable,
+    kD3DSetComputeRootShaderResourceView,
+    kD3DSetGraphicsRootShaderResourceView,
     kD3DSetComputeRootSignature,
     kD3DSetGraphicsRootSignature,
+    kD3DSetComputeRootUnorderedAccessView,
+    kD3DSetGraphicsRootUnorderedAccessView,
     kSetDescriptorHeaps,
     kD3DSetPipelineState,
     kSetPipelineStateHandle,

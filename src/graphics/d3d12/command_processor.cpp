@@ -2441,12 +2441,38 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
   // Get dynamic rasterizer state.
   uint32_t draw_resolution_scale_x = texture_cache_->draw_resolution_scale_x();
   uint32_t draw_resolution_scale_y = texture_cache_->draw_resolution_scale_y();
+
+  bool convert_z_to_float24 =
+      host_render_targets_used && render_target_cache_->depth_float24_convert_in_pixel_shader();
+  bool ps_writes_depth = pixel_shader && pixel_shader->writes_depth();
+
+  // Build a cache key from all viewport-affecting state to skip redundant
+  // recalculation when the viewport registers haven't changed between draws.
+  ViewportCacheKey viewport_key;
+  viewport_key.pa_cl_clip_cntl = regs[XE_GPU_REG_PA_CL_CLIP_CNTL];
+  viewport_key.pa_cl_vte_cntl = regs[XE_GPU_REG_PA_CL_VTE_CNTL];
+  viewport_key.pa_su_sc_mode_cntl = regs[XE_GPU_REG_PA_SU_SC_MODE_CNTL];
+  viewport_key.pa_su_vtx_cntl = regs[XE_GPU_REG_PA_SU_VTX_CNTL];
+  viewport_key.pa_sc_window_offset = regs[XE_GPU_REG_PA_SC_WINDOW_OFFSET];
+  viewport_key.normalized_depth_control = normalized_depth_control.value;
+  std::memcpy(viewport_key.vport_regs, &regs[XE_GPU_REG_PA_CL_VPORT_XSCALE],
+              sizeof(viewport_key.vport_regs));
+  viewport_key.flags = (uint32_t(convert_z_to_float24) << 0) |
+                       (uint32_t(host_render_targets_used) << 1) | (uint32_t(ps_writes_depth) << 2);
+
   draw_util::ViewportInfo viewport_info;
-  draw_util::GetHostViewportInfo(
-      regs, draw_resolution_scale_x, draw_resolution_scale_y, true, D3D12_VIEWPORT_BOUNDS_MAX,
-      D3D12_VIEWPORT_BOUNDS_MAX, false, normalized_depth_control,
-      host_render_targets_used && render_target_cache_->depth_float24_convert_in_pixel_shader(),
-      host_render_targets_used, pixel_shader && pixel_shader->writes_depth(), viewport_info);
+  if (viewport_cache_valid_ && viewport_key == previous_viewport_key_) {
+    viewport_info = previous_viewport_info_;
+  } else {
+    draw_util::GetHostViewportInfo(regs, draw_resolution_scale_x, draw_resolution_scale_y, true,
+                                   D3D12_VIEWPORT_BOUNDS_MAX, D3D12_VIEWPORT_BOUNDS_MAX, false,
+                                   normalized_depth_control, convert_z_to_float24,
+                                   host_render_targets_used, ps_writes_depth, viewport_info);
+    previous_viewport_key_ = viewport_key;
+    previous_viewport_info_ = viewport_info;
+    viewport_cache_valid_ = true;
+  }
+
   draw_util::Scissor scissor;
   draw_util::GetScissor(regs, scissor);
   scissor.offset[0] *= draw_resolution_scale_x;
@@ -3315,6 +3341,7 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
     ff_scissor_update_needed_ = true;
     ff_blend_factor_update_needed_ = true;
     ff_stencil_ref_update_needed_ = true;
+    viewport_cache_valid_ = false;
     current_guest_pipeline_ = nullptr;
     current_external_pipeline_ = nullptr;
     current_graphics_root_signature_ = nullptr;

@@ -190,6 +190,16 @@ void DeferredCommandList::Execute(ID3D12GraphicsCommandList* command_list,
         command_list->SetGraphicsRootDescriptorTable(args.root_parameter_index,
                                                      args.base_descriptor);
       } break;
+      case Command::kD3DSetComputeRootShaderResourceView: {
+        auto& args = *reinterpret_cast<const SetRootConstantBufferViewArguments*>(stream);
+        command_list->SetComputeRootShaderResourceView(args.root_parameter_index,
+                                                       args.buffer_location);
+      } break;
+      case Command::kD3DSetGraphicsRootShaderResourceView: {
+        auto& args = *reinterpret_cast<const SetRootConstantBufferViewArguments*>(stream);
+        command_list->SetGraphicsRootShaderResourceView(args.root_parameter_index,
+                                                        args.buffer_location);
+      } break;
       case Command::kD3DSetComputeRootSignature: {
         command_list->SetComputeRootSignature(
             *reinterpret_cast<ID3D12RootSignature* const*>(stream));
@@ -197,6 +207,16 @@ void DeferredCommandList::Execute(ID3D12GraphicsCommandList* command_list,
       case Command::kD3DSetGraphicsRootSignature: {
         command_list->SetGraphicsRootSignature(
             *reinterpret_cast<ID3D12RootSignature* const*>(stream));
+      } break;
+      case Command::kD3DSetComputeRootUnorderedAccessView: {
+        auto& args = *reinterpret_cast<const SetRootConstantBufferViewArguments*>(stream);
+        command_list->SetComputeRootUnorderedAccessView(args.root_parameter_index,
+                                                        args.buffer_location);
+      } break;
+      case Command::kD3DSetGraphicsRootUnorderedAccessView: {
+        auto& args = *reinterpret_cast<const SetRootConstantBufferViewArguments*>(stream);
+        command_list->SetGraphicsRootUnorderedAccessView(args.root_parameter_index,
+                                                         args.buffer_location);
       } break;
       case Command::kSetDescriptorHeaps: {
         auto& args = *reinterpret_cast<const SetDescriptorHeapsArguments*>(stream);
@@ -236,10 +256,8 @@ void DeferredCommandList::Execute(ID3D12GraphicsCommandList* command_list,
       case Command::kBeginDebugMarker: {
         auto& args = *reinterpret_cast<const DebugMarkerHeader*>(stream);
         const char* label_name = reinterpret_cast<const char*>(
-            reinterpret_cast<const uint8_t*>(stream) +
-            sizeof(DebugMarkerHeader));
-        command_list->BeginEvent(1, label_name,
-                                 static_cast<UINT>(args.label_length + 1));
+            reinterpret_cast<const uint8_t*>(stream) + sizeof(DebugMarkerHeader));
+        command_list->BeginEvent(1, label_name, static_cast<UINT>(args.label_length + 1));
       } break;
       case Command::kEndDebugMarker: {
         command_list->EndEvent();
@@ -247,10 +265,8 @@ void DeferredCommandList::Execute(ID3D12GraphicsCommandList* command_list,
       case Command::kInsertDebugMarker: {
         auto& args = *reinterpret_cast<const DebugMarkerHeader*>(stream);
         const char* label_name = reinterpret_cast<const char*>(
-            reinterpret_cast<const uint8_t*>(stream) +
-            sizeof(DebugMarkerHeader));
-        command_list->SetMarker(1, label_name,
-                                static_cast<UINT>(args.label_length + 1));
+            reinterpret_cast<const uint8_t*>(stream) + sizeof(DebugMarkerHeader));
+        command_list->SetMarker(1, label_name, static_cast<UINT>(args.label_length + 1));
       } break;
       default:
         assert_unhandled_case(header.command);

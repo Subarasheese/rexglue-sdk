@@ -469,6 +469,23 @@ class D3D12CommandProcessor : public CommandProcessor {
 
   bool debug_markers_enabled_ = false;
 
+  // Viewport info caching - avoids redundant GetHostViewportInfo recalculation
+  // when viewport-affecting register state hasn't changed between draws.
+  struct ViewportCacheKey {
+    uint32_t pa_cl_clip_cntl;
+    uint32_t pa_cl_vte_cntl;
+    uint32_t pa_su_sc_mode_cntl;
+    uint32_t pa_su_vtx_cntl;
+    uint32_t pa_sc_window_offset;
+    uint32_t normalized_depth_control;
+    uint32_t vport_regs[6];  // XSCALE, XOFFSET, YSCALE, YOFFSET, ZSCALE, ZOFFSET
+    uint32_t flags;          // packed: convert_z_to_float24, full_float24, ps_writes_depth
+    bool operator==(const ViewportCacheKey&) const = default;
+  };
+  ViewportCacheKey previous_viewport_key_{};
+  draw_util::ViewportInfo previous_viewport_info_{};
+  bool viewport_cache_valid_ = false;
+
   // Should bindless textures and samplers be used - many times faster
   // UpdateBindings than bindful (that becomes a significant bottleneck with
   // bindful - mainly because of CopyDescriptorsSimple, which takes the majority
