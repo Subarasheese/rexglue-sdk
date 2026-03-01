@@ -255,6 +255,11 @@ if(REXGLUE_ENABLE_FIDELITYFX)
             INTERFACE_INCLUDE_DIRECTORIES ""
         )
     endif()
+
+    # FidelityFX's toolchain.cmake force-sets CMAKE_GENERATOR_PLATFORM (for VS generators).
+    # With Ninja this variable is invalid and poisons every subsequent try_compile() call.
+    # Clear it from the cache.
+    unset(CMAKE_GENERATOR_PLATFORM CACHE)
 endif()
 
 #=============================================================================
