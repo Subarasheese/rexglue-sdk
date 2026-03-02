@@ -918,10 +918,15 @@ bool PipelineCache::ConfigurePipeline(
               register_file_.Get<reg::SQ_PROGRAM_CNTL>().vs_export_mode !=
                   xenos::VertexShaderExportMode::kPosition2VectorsEdgeKill);
   assert_false(register_file_.Get<reg::SQ_PROGRAM_CNTL>().gen_index_vtx);
-  if (!vertex_shader->is_translated()) {
+  // Ucode analysis is always needed on the main thread (for modification and
+  // hash computation). Translation can be deferred to background threads when
+  // async compilation is enabled.
+  if (!vertex_shader->shader().is_ucode_analyzed()) {
+    vertex_shader->shader().AnalyzeUcode(ucode_disasm_buffer_);
+  }
+  if (!vertex_shader->is_translated() && !use_async) {
     std::lock_guard<std::mutex> lock(translation_request_lock_);
     if (!vertex_shader->is_translated()) {
-      vertex_shader->shader().AnalyzeUcode(ucode_disasm_buffer_);
       if (!TranslateAnalyzedShader(*shader_translator_, *vertex_shader, dxbc_converter_, dxc_utils_,
                                    dxc_compiler_)) {
         REXGPU_ERROR("Failed to translate the vertex shader!");
@@ -940,7 +945,7 @@ bool PipelineCache::ConfigurePipeline(
       }
     }
   }
-  if (!vertex_shader->is_valid()) {
+  if (!use_async && !vertex_shader->is_valid()) {
     // Translation attempted previously, but not valid.
     return false;
   }
@@ -1016,6 +1021,7 @@ bool PipelineCache::ConfigurePipeline(
                                             : normalized_depth_control.z_write_enable != 0;
     new_pipeline->priority = pipeline_util::CalculatePipelinePriority(
         bound_rts, shader_writes_color_targets, shader_writes_depth);
+    new_pipeline->pending_vertex_shader = vertex_shader;
     new_pipeline->pending_pixel_shader = pixel_shader;
     // Submit the pipeline for creation to any available thread.
     {
@@ -1230,8 +1236,10 @@ bool PipelineCache::GetCurrentStateDescription(
     uint32_t bound_depth_and_color_render_target_bits,
     const uint32_t* bound_depth_and_color_render_target_formats,
     PipelineRuntimeDescription& runtime_description_out, bool for_placeholder) {
-  // Translated shaders needed at least for the root signature.
-  assert_true(vertex_shader->is_translated() && vertex_shader->is_valid());
+  // Translated shaders needed at least for the root signature, unless in
+  // placeholder mode (async compilation) where both VS and PS translation
+  // may be deferred to background threads.
+  assert_true(for_placeholder || (vertex_shader->is_translated() && vertex_shader->is_valid()));
   assert_true(for_placeholder || !pixel_shader ||
               (pixel_shader->is_translated() && pixel_shader->is_valid()));
 
