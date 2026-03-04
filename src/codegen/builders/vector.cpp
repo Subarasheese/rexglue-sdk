@@ -435,6 +435,16 @@ bool build_vavgsh(BuilderContext& ctx) {
   return true;
 }
 
+bool build_vavgsw(BuilderContext& ctx) {
+  ctx.println(
+      "\tsimde_mm_store_si128((simde__m128i*){}.s32, "
+      "rex::simde_mm_avg_epi32("
+      "simde_mm_load_si128((simde__m128i*){}.s32), "
+      "simde_mm_load_si128((simde__m128i*){}.s32)));",
+      ctx.v(ctx.insn.operands[0]), ctx.v(ctx.insn.operands[1]), ctx.v(ctx.insn.operands[2]));
+  return true;
+}
+
 bool build_vavgub(BuilderContext& ctx) {
   ctx.emit_vec_int_binary("avg_epu8", "u8");
   return true;
