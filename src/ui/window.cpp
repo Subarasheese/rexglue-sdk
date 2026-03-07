@@ -31,6 +31,8 @@ REXCVAR_DEFINE_INT32(window_height, 0, "UI/Window",
     .range(0, 8192)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
+REXCVAR_DEFINE_BOOL(fullscreen, false, "UI/Window", "Start the window in fullscreen mode")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 namespace rex {
 namespace ui {
 
