@@ -12,13 +12,13 @@
 #include <algorithm>
 #include <rex/logging.h>
 #include <rex/system/elf_module.h>
-#include <rex/system/processor.h>
+#include <rex/system/function_dispatcher.h>
 #include <rex/types.h>
 
 namespace rex::runtime {
 
-ElfModule::ElfModule(Processor* processor, system::KernelState* /*kernel_state*/)
-    : Module(processor) {}
+ElfModule::ElfModule(FunctionDispatcher* function_dispatcher, system::KernelState* /*kernel_state*/)
+    : Module(function_dispatcher) {}
 
 ElfModule::~ElfModule() = default;
 

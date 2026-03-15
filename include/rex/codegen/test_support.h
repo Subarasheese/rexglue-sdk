@@ -24,7 +24,7 @@ namespace rex::codegen {
  * @brief Lightweight Module for loading raw binary test data
  *
  * TestModule provides the Module interface needed by FunctionScanner and
- * Recompiler without requiring a full Runtime/Processor setup. It accepts
+ * Recompiler without requiring a full Runtime/FunctionDispatcher setup. It accepts
  * raw binary data by reference (caller owns the buffer).
  *
  * Usage:

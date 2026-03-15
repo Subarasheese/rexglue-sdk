@@ -21,15 +21,15 @@
 
 namespace rex::runtime {
 
-class Processor;
+class FunctionDispatcher;
 
 class Module {
  public:
-  explicit Module(Processor* processor);
+  explicit Module(FunctionDispatcher* function_dispatcher);
   virtual ~Module();
 
   memory::Memory* memory() const { return memory_; }
-  Processor* processor() const { return processor_; }
+  FunctionDispatcher* function_dispatcher() const { return function_dispatcher_; }
 
   virtual const std::string& name() const = 0;
   virtual bool is_executable() const = 0;
@@ -67,7 +67,7 @@ class Module {
   void ClearBinarySymbols();
 
  protected:
-  Processor* processor_ = nullptr;
+  FunctionDispatcher* function_dispatcher_ = nullptr;
   memory::Memory* memory_ = nullptr;
 
   // Storage for binary introspection (populated by derived classes)

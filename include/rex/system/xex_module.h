@@ -60,7 +60,7 @@ class XexModule : public Module {
     kFormatXex2,
   };
 
-  XexModule(Processor* processor, system::KernelState* kernel_state);
+  XexModule(FunctionDispatcher* function_dispatcher, system::KernelState* kernel_state);
   virtual ~XexModule();
 
   bool loaded() const { return loaded_; }

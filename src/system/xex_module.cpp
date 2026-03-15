@@ -27,7 +27,7 @@
 #include <rex/system/flags.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/lzx.h>
-#include <rex/system/processor.h>
+#include <rex/system/function_dispatcher.h>
 #include <rex/system/xex_module.h>
 #include <rex/system/xmodule.h>
 #include <rex/types.h>
@@ -60,8 +60,8 @@ namespace rex::runtime {
 
 using rex::system::KernelState;
 
-XexModule::XexModule(Processor* processor, KernelState* kernel_state)
-    : Module(processor), kernel_state_(kernel_state) {}
+XexModule::XexModule(FunctionDispatcher* function_dispatcher, KernelState* kernel_state)
+    : Module(function_dispatcher), kernel_state_(kernel_state) {}
 
 XexModule::~XexModule() {}
 

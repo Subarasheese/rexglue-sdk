@@ -24,7 +24,7 @@ namespace rex::runtime {
 // ELF module: Used to load libxenon executables.
 class ElfModule : public Module {
  public:
-  ElfModule(Processor* processor, rex::system::KernelState* kernel_state);
+  ElfModule(FunctionDispatcher* function_dispatcher, rex::system::KernelState* kernel_state);
   virtual ~ElfModule();
 
   bool loaded() const { return loaded_; }

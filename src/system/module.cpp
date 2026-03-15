@@ -12,12 +12,13 @@
 #include <utility>
 
 #include <rex/system/module.h>
-#include <rex/system/processor.h>
+#include <rex/system/function_dispatcher.h>
 
 namespace rex::runtime {
 
-Module::Module(Processor* processor)
-    : processor_(processor), memory_(processor ? processor->memory() : nullptr) {}
+Module::Module(FunctionDispatcher* function_dispatcher)
+    : function_dispatcher_(function_dispatcher),
+      memory_(function_dispatcher ? function_dispatcher->memory() : nullptr) {}
 
 Module::~Module() = default;
 
