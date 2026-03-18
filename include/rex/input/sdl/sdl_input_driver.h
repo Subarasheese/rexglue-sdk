@@ -29,7 +29,7 @@
 
 namespace rex::input::sdl {
 
-class SDLInputDriver final : public InputDriver {
+class SDLInputDriver final : public InputDriver, public rex::ui::WindowListener {
  public:
   explicit SDLInputDriver(rex::ui::Window* window, size_t window_z_order);
   ~SDLInputDriver() override;
@@ -42,6 +42,7 @@ class SDLInputDriver final : public InputDriver {
   X_RESULT SetState(uint32_t user_index, X_INPUT_VIBRATION* vibration) override;
   X_RESULT GetKeystroke(uint32_t user_index, uint32_t flags,
                         X_INPUT_KEYSTROKE* out_keystroke) override;
+  void OnWindowAvailable(rex::ui::Window* window) override;
 
  private:
   struct ControllerState {
@@ -66,6 +67,11 @@ class SDLInputDriver final : public InputDriver {
     uint32_t repeat_time;
   };
 
+  // WindowListener
+  void OnClosing(rex::ui::UIEvent& e) override;
+  void OnLostFocus(rex::ui::UISetupEvent& e) override;
+  void OnGotFocus(rex::ui::UISetupEvent& e) override;
+
   void HandleEvent(const SDL_Event& event);
   std::unique_lock<std::mutex> DrainAndLock();
   void ProcessEventLocked(const SDL_Event& event);
@@ -81,6 +87,7 @@ class SDLInputDriver final : public InputDriver {
   void UpdateXCapabilities(ControllerState& state);
   void QueueControllerUpdate();
 
+  rex::ui::Window* attached_window_ = nullptr;
   bool sdl_events_initialized_;
   bool SDL_Gamepad_initialized_;
   std::atomic<int> sdl_events_unflushed_;
