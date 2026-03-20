@@ -506,7 +506,7 @@ void SpirvShaderTranslator::StartTranslation() {
                                  "xe_var_tfetch_gradients_v", const_float3_0_);
     if (register_count()) {
       spv::Id type_register_array =
-          builder_->makeArrayType(type_float4_, builder_->makeUintConstant(register_count()), 0);
+          builder_->makeArrayType(type_float4_, builder_->makeUintConstant(register_count()), 1);
       var_main_registers_ = builder_->createVariable(spv::NoPrecision, spv::StorageClassFunction,
                                                      type_register_array, "xe_var_registers");
     }
@@ -2876,6 +2876,7 @@ void SpirvShaderTranslator::StartFragmentShaderBeforeMain() {
   if (IsSampleRate()) {
     input_sample_id_ = builder_->createVariable(spv::NoPrecision, spv::StorageClassInput, type_int_,
                                                 "gl_SampleID");
+    builder_->addDecoration(input_sample_id_, spv::DecorationFlat);
     builder_->addDecoration(input_sample_id_, spv::DecorationBuiltIn, spv::BuiltInSampleId);
     main_interface_.push_back(input_sample_id_);
   }
@@ -2928,7 +2929,6 @@ void SpirvShaderTranslator::StartFragmentShaderBeforeMain() {
       output_fragment_sample_mask_ = builder_->createVariable(
           spv::NoPrecision, spv::StorageClassOutput,
           builder_->makeArrayType(type_int_, builder_->makeUintConstant(1), 0), "gl_SampleMask");
-      builder_->addDecoration(output_fragment_sample_mask_, spv::DecorationFlat);
       builder_->addDecoration(output_fragment_sample_mask_, spv::DecorationBuiltIn,
                               spv::BuiltInSampleMask);
       main_interface_.push_back(output_fragment_sample_mask_);

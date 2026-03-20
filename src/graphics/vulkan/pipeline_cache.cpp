@@ -1952,8 +1952,7 @@ VkShaderModule VulkanPipelineCache::GetGeometryShader(GeometryShaderKey key) {
                           int(SpirvShaderTranslator::kDescriptorSetConstants));
     builder.addDecoration(uniform_system_constants, spv::DecorationBinding,
                           int(SpirvShaderTranslator::kConstantBufferSystem));
-    // Generating SPIR-V 1.0, no need to add bindings to the entry point's
-    // interface until SPIR-V 1.4.
+    main_interface.push_back(uniform_system_constants);
   }
 
   // Inputs and outputs - matching glslang order, in gl_PerVertex gl_in[],
