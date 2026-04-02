@@ -139,9 +139,9 @@ X_STATUS GraphicsSystem::Setup(runtime::FunctionDispatcher* function_dispatcher,
           uint64_t current_time = chrono::Clock::QueryGuestTickCount();
           uint64_t interval_ticks =
               REXCVAR_GET(vsync) ? vsync_interval_ticks : no_vsync_interval_ticks;
-          if (current_time - last_frame_time >= interval_ticks) {
+          while (current_time - last_frame_time >= interval_ticks) {
             MarkVblank();
-            last_frame_time = current_time;
+            last_frame_time += interval_ticks;
           }
           rex::thread::Sleep(std::chrono::milliseconds(1));
         }
