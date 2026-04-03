@@ -160,8 +160,7 @@ bool ReXApp::OnInitialize() {
 
   OnPostLoadXexImage();
 
-  // Initialize rexcrt heap after LoadXexImage to avoid guest memory writes
-  // corrupting the heap region. rexcrt_heap is set by codegen (REXCRT_HEAP)
+  // Initialize rexcrt heap. rexcrt_heap is set by codegen (REXCRT_HEAP)
   // when [rexcrt] contains heap functions -- originals are stripped so init
   // is required. Size is controlled by the rexcrt_heap_size_mb CVAR.
   if (ppc_info_.rexcrt_heap) {

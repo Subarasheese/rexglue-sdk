@@ -15,7 +15,6 @@
 
 #include <rex/cvar.h>
 #include <rex/math.h>
-#include <rex/platform.h>
 #include <rex/ppc/function.h>
 #include <rex/system/xmemory.h>
 #include <rex/logging.h>
@@ -202,42 +201,24 @@ bool ReXHeap::AllocateSegmentLocked(uint32_t segment_size_bytes) {
       rex::align<uint32_t>(std::max(segment_size_bytes, kMinSegmentSize), O1HEAP_ALIGNMENT);
 
   uint32_t guest_base = 0;
-  bool used_system_heap = false;
 
-  auto alloc_regular_virtual_heap = [&]() -> bool {
-    auto* heap = mem->LookupHeapByType(false, 4096);
-    if (!heap ||
-        !heap->Alloc(segment_size_bytes, O1HEAP_ALIGNMENT,
-                     rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
-                     rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite, true,
-                     &guest_base)) {
-      return false;
-    }
-    return true;
-  };
-
-#if REX_PLATFORM_LINUX
-  if (!alloc_regular_virtual_heap()) {
-    REXKRNL_ERROR("rexcrt_heap: regular virtual heap allocation of {} bytes failed",
-                  segment_size_bytes);
+  // Allocate from the regular virtual heap (top-down) instead of the system
+  // heap. The system heap range is shared with kernel bookkeeping allocations
+  // (KernelState globals, thread PCR/TLS, module headers, etc.) and cannot
+  // accommodate a large contiguous rexcrt segment alongside them.
+  auto* vheap = mem->LookupHeapByType(false, 4096);
+  if (!vheap ||
+      !vheap->Alloc(segment_size_bytes, O1HEAP_ALIGNMENT,
+                    rex::memory::kMemoryAllocationReserve | rex::memory::kMemoryAllocationCommit,
+                    rex::memory::kMemoryProtectRead | rex::memory::kMemoryProtectWrite, true,
+                    &guest_base)) {
+    REXKRNL_ERROR("rexcrt_heap: virtual heap allocation of {} bytes failed", segment_size_bytes);
     return false;
   }
-#else
-  guest_base = mem->SystemHeapAlloc(segment_size_bytes);
-  used_system_heap = guest_base != 0;
-  if (!guest_base && !alloc_regular_virtual_heap()) {
-    REXKRNL_ERROR("rexcrt_heap: failed to allocate {} bytes from both system and regular heaps",
-                  segment_size_bytes);
-    return false;
-  }
-#endif
 
   uint8_t* host_base = mem->TranslateVirtual<uint8_t*>(guest_base);
   if (!host_base) {
     REXKRNL_ERROR("rexcrt_heap: TranslateVirtual failed for guest base 0x{:08X}", guest_base);
-    if (used_system_heap) {
-      mem->SystemHeapFree(guest_base);
-    }
     return false;
   }
 
@@ -245,9 +226,6 @@ bool ReXHeap::AllocateSegmentLocked(uint32_t segment_size_bytes) {
   if (!heap) {
     REXKRNL_ERROR("rexcrt_heap: o1heapInit failed for segment 0x{:08X} size {}", guest_base,
                   segment_size_bytes);
-    if (used_system_heap) {
-      mem->SystemHeapFree(guest_base);
-    }
     return false;
   }
 
