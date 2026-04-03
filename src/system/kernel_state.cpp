@@ -680,23 +680,29 @@ void KernelState::TerminateTitle() {
   terminate_notifications_.clear();
   */
 
-  // Kill all guest threads.
+  // Attempt 1: ask nicely.
+  // Suspend all guest threads stay valid while we tear down shared containers.
+  std::vector<XThread*> suspended_threads;
+  for (auto it = threads_by_id_.begin(); it != threads_by_id_.end(); ++it) {
+    if (!XThread::IsInThread(it->second) && it->second->is_guest_thread() &&
+        it->second->is_running()) {
+      it->second->thread()->Suspend();
+      suspended_threads.push_back(it->second);
+    }
+  }
+
+  app_manager_.reset();
+
+  // Attempt 2: ask less nicely.
+  global_lock.unlock();
+  for (auto* thread : suspended_threads) {
+    thread->Terminate(0);
+  }
+  global_lock.lock();
+
+  // Remove all guest threads from the map.
   for (auto it = threads_by_id_.begin(); it != threads_by_id_.end();) {
     if (!XThread::IsInThread(it->second) && it->second->is_guest_thread()) {
-      auto thread = it->second;
-
-      if (thread->is_running()) {
-        // NOTE(tomc): JIT safe point stepping not available
-        // Just terminate the thread directly
-        thread->thread()->Suspend();
-
-        global_lock.unlock();
-        // NOTE(tomc): function_dispatcher_->StepToGuestSafePoint() is JIT-only
-        thread->Terminate(0);
-        global_lock.lock();
-      }
-
-      // Erase it from the thread list.
       it = threads_by_id_.erase(it);
     } else {
       ++it;
