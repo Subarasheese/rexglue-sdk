@@ -24,13 +24,9 @@ REXCVAR_DECLARE(bool, mnk_mode);
 namespace rex::ui {
 
 SettingsDialog::SettingsDialog(ImGuiDrawer* imgui_drawer, std::filesystem::path config_path)
-    : ImGuiDialog(imgui_drawer), config_path_(std::move(config_path)) {
-  RegisterBind("bind_settings", "F4", "Toggle settings overlay", [this] { ToggleVisible(); });
-}
+    : ImGuiDialog(imgui_drawer), config_path_(std::move(config_path)) {}
 
-SettingsDialog::~SettingsDialog() {
-  UnregisterBind("bind_settings");
-}
+SettingsDialog::~SettingsDialog() {}
 
 static const char* LifecycleBadge(rex::cvar::Lifecycle lc) {
   switch (lc) {
@@ -160,9 +156,6 @@ static rex::ui::VirtualKey ImGuiKeyToVirtualKey(ImGuiKey key) {
 }
 
 void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
-  if (!visible_)
-    return;
-
   auto& registry = rex::cvar::GetRegistry();
 
   // Collect sorted unique category paths.
@@ -207,7 +200,7 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
 
   ImGui::SetNextWindowSize(ImVec2(620, 480), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowBgAlpha(0.85f);
-  if (!ImGui::Begin("Settings##rex", &visible_, ImGuiWindowFlags_NoCollapse)) {
+  if (!ImGui::Begin("Settings##rex", nullptr, ImGuiWindowFlags_NoCollapse)) {
     ImGui::End();
     return;
   }

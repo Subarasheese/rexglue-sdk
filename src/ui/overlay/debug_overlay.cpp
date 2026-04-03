@@ -10,7 +10,6 @@
  *              See LICENSE file in the project root for full license text.
  */
 #include <rex/ui/overlay/debug_overlay.h>
-#include <rex/ui/keybinds.h>
 #include <rex/version.h>
 #include <imgui.h>
 #ifdef REXGLUE_ENABLE_PERF_COUNTERS
@@ -21,18 +20,11 @@
 namespace rex::ui {
 
 DebugOverlayDialog::DebugOverlayDialog(ImGuiDrawer* imgui_drawer, FrameStatsProvider stats_provider)
-    : ImGuiDialog(imgui_drawer), stats_provider_(std::move(stats_provider)) {
-  RegisterBind("bind_debug_overlay", "F3", "Toggle debug overlay", [this] { ToggleVisible(); });
-}
+    : ImGuiDialog(imgui_drawer), stats_provider_(std::move(stats_provider)) {}
 
-DebugOverlayDialog::~DebugOverlayDialog() {
-  UnregisterBind("bind_debug_overlay");
-}
+DebugOverlayDialog::~DebugOverlayDialog() {}
 
 void DebugOverlayDialog::OnDraw(ImGuiIO& io) {
-  if (!visible_)
-    return;
-
   ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
 #ifdef REXGLUE_ENABLE_PERF_COUNTERS
   ImGui::SetNextWindowSize(ImVec2(280, 280), ImGuiCond_FirstUseEver);
@@ -41,7 +33,6 @@ void DebugOverlayDialog::OnDraw(ImGuiIO& io) {
 #endif
   ImGui::SetNextWindowBgAlpha(0.5f);
   if (ImGui::Begin("Debug##overlay", nullptr, ImGuiWindowFlags_NoCollapse)) {
-    ImGui::Text("Host:  %.1f FPS (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
     if (stats_provider_) {
       auto stats = stats_provider_();
       if (stats.frame_count > 0) {

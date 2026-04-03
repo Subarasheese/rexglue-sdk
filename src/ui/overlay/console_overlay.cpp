@@ -11,7 +11,6 @@
  */
 #include <rex/ui/overlay/console_overlay.h>
 #include <rex/cvar.h>
-#include <rex/ui/keybinds.h>
 #include <imgui.h>
 #include <algorithm>
 #include <string>
@@ -39,21 +38,9 @@ static ImVec4 LevelColor(spdlog::level::level_enum level) {
 }
 
 ConsoleDialog::ConsoleDialog(ImGuiDrawer* imgui_drawer, std::shared_ptr<rex::LogCaptureSink> sink)
-    : ImGuiDialog(imgui_drawer), sink_(std::move(sink)) {
-  RegisterBind("bind_console", "Backtick", "Toggle console overlay", [this] { ToggleVisible(); });
-}
+    : ImGuiDialog(imgui_drawer), sink_(std::move(sink)) {}
 
-ConsoleDialog::~ConsoleDialog() {
-  UnregisterBind("bind_console");
-}
-
-void ConsoleDialog::ToggleVisible() {
-  visible_ = !visible_;
-  if (visible_) {
-    focus_input_next_frame_ = true;
-    scroll_to_bottom_ = true;
-  }
-}
+ConsoleDialog::~ConsoleDialog() {}
 
 void ConsoleDialog::RefreshCategories() {
   for (auto& entry : entries_) {
@@ -152,9 +139,6 @@ void ConsoleDialog::ExecuteCommand(std::string_view cmd) {
 }
 
 void ConsoleDialog::OnDraw(ImGuiIO& io) {
-  if (!visible_)
-    return;
-
   // Refresh entries if sink has new data.
   if (sink_) {
     uint64_t gen = sink_->generation();
@@ -175,7 +159,7 @@ void ConsoleDialog::OnDraw(ImGuiIO& io) {
   ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
                            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar;
 
-  if (!ImGui::Begin("Console##rex", &visible_, flags)) {
+  if (!ImGui::Begin("Console##rex", nullptr, flags)) {
     ImGui::End();
     return;
   }

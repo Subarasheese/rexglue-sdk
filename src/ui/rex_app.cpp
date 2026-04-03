@@ -213,11 +213,33 @@ bool ReXApp::OnInitialize() {
         immediate_drawer_->SetPresenter(presenter);
         imgui_drawer_ = std::make_unique<rex::ui::ImGuiDrawer>(window_.get(), 64);
         imgui_drawer_->SetPresenterAndImmediateDrawer(presenter, immediate_drawer_.get());
-        // Built-in overlays
-        debug_overlay_ = std::make_unique<ui::DebugOverlayDialog>(imgui_drawer_.get());
-        console_overlay_ = std::make_unique<ui::ConsoleDialog>(imgui_drawer_.get(), log_sink_);
-        settings_overlay_ = std::make_unique<ui::SettingsDialog>(
-            imgui_drawer_.get(), exe_dir / (std::string(GetName()) + ".toml"));
+        // Overlay keybinds -- dialogs are created/destroyed on demand so
+        // ImGuiDrawer can detach when idle, enabling kGuestOutputThreadImmediately
+        // paint mode for 1:1 host-guest frame sync.
+        config_path_ = exe_dir / (std::string(GetName()) + ".toml");
+        rex::ui::RegisterBind("bind_debug_overlay", "F3", "Toggle debug overlay", [this] {
+          if (debug_overlay_) {
+            debug_overlay_.reset();
+          } else {
+            debug_overlay_ = std::make_unique<ui::DebugOverlayDialog>(imgui_drawer_.get(),
+                                                                      frame_stats_provider_);
+          }
+        });
+        rex::ui::RegisterBind("bind_console", "Backtick", "Toggle console overlay", [this] {
+          if (console_overlay_) {
+            console_overlay_.reset();
+          } else {
+            console_overlay_ = std::make_unique<ui::ConsoleDialog>(imgui_drawer_.get(), log_sink_);
+          }
+        });
+        rex::ui::RegisterBind("bind_settings", "F4", "Toggle settings overlay", [this] {
+          if (settings_overlay_) {
+            settings_overlay_.reset();
+          } else {
+            settings_overlay_ =
+                std::make_unique<ui::SettingsDialog>(imgui_drawer_.get(), config_path_);
+          }
+        });
 
         // Allow subclass to add custom dialogs
         OnCreateDialogs(imgui_drawer_.get());
@@ -228,7 +250,11 @@ bool ReXApp::OnInitialize() {
         // (e.g. overlay is open). This controls MnK mouse capture.
         auto* input_sys = static_cast<rex::input::InputSystem*>(runtime_->input_system());
         if (input_sys) {
-          input_sys->SetActiveCallback([]() { return !ImGui::GetIO().WantCaptureMouse; });
+          input_sys->SetActiveCallback([this]() {
+            if (!debug_overlay_ && !console_overlay_ && !settings_overlay_)
+              return true;
+            return !ImGui::GetIO().WantCaptureMouse;
+          });
         }
       }
     }
@@ -280,6 +306,11 @@ void ReXApp::OnDestroy() {
   // Notify subclass before cleanup
   OnShutdown();
 
+  // Unregister overlay keybinds before destroying dialogs
+  rex::ui::UnregisterBind("bind_debug_overlay");
+  rex::ui::UnregisterBind("bind_console");
+  rex::ui::UnregisterBind("bind_settings");
+
   // ImGui cleanup (reverse of setup)
   settings_overlay_.reset();
   console_overlay_.reset();
@@ -312,8 +343,9 @@ void ReXApp::OnDestroy() {
 }
 
 void ReXApp::SetGuestFrameStats(ui::DebugOverlayDialog::FrameStatsProvider provider) {
+  frame_stats_provider_ = provider;
   if (debug_overlay_) {
-    debug_overlay_->SetStatsProvider(std::move(provider));
+    debug_overlay_->SetStatsProvider(provider);
   }
 }
 

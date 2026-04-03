@@ -22,14 +22,10 @@ class SettingsDialog : public ImGuiDialog {
   SettingsDialog(ImGuiDrawer* imgui_drawer, std::filesystem::path config_path);
   ~SettingsDialog();
 
-  void ToggleVisible() { visible_ = !visible_; }
-  bool IsVisible() const { return visible_; }
-
  protected:
   void OnDraw(ImGuiIO& io) override;
 
  private:
-  bool visible_ = false;
   std::filesystem::path config_path_;
   char search_buf_[128] = {};
   std::string selected_category_;
