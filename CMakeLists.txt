@@ -178,6 +178,7 @@ if(REXGLUE_ENABLE_SANITIZERS)
 endif()
 
 if(REXGLUE_BUILD_TESTS)
+    list(APPEND CMAKE_MODULE_PATH "${REXGLUE_ROOT}/cmake")
     list(APPEND CMAKE_MODULE_PATH "${REXGLUE_ROOT}/thirdparty/catch2/extras")
 endif()
 
