@@ -902,10 +902,7 @@ bool build_vsrab(BuilderContext& ctx) {
 }
 
 bool build_vsrah(BuilderContext& ctx) {
-  // TODO(tomc): vectorize
-  for (size_t i = 0; i < 8; i++)
-    ctx.println("\t{}.s16[{}] = {}.s16[{}] >> ({}.u16[{}] & 0xF);", ctx.v(ctx.insn.operands[0]), i,
-                ctx.v(ctx.insn.operands[1]), i, ctx.v(ctx.insn.operands[2]), i);
+  ctx.emit_vec_var_shift("srav", "epi16", 0xF);
   return true;
 }
 
