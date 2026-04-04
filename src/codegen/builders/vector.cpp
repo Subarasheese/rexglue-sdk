@@ -141,11 +141,32 @@ bool build_vrsqrtefp(BuilderContext& ctx) {
 }
 
 bool build_vexptefp(BuilderContext& ctx) {
-  // TODO: vectorize
+  // SIMD exp2 estimate (~12-bit precision, matching PPC vexptefp spec)
+  // Algorithm: exp2(x) = 2^n * poly(f), where n = floor(x), f = x - n
+  auto vD = ctx.v(ctx.insn.operands[0]);
+  auto vA = ctx.v(ctx.insn.operands[1]);
   ctx.emit_set_flush_mode(true);
-  for (size_t i = 0; i < 4; i++)
-    ctx.println("\t{}.f32[{}] = exp2f({}.f32[{}]);", ctx.v(ctx.insn.operands[0]), i,
-                ctx.v(ctx.insn.operands[1]), i);
+  ctx.println("\t{{");
+  ctx.println("\t\tsimde__m128 x = simde_mm_load_ps({}.f32);", vA);
+  ctx.println(
+      "\t\tsimde__m128 n = simde_mm_round_ps(x, "
+      "SIMDE_MM_FROUND_TO_NEG_INF | SIMDE_MM_FROUND_NO_EXC);");
+  ctx.println("\t\tsimde__m128 f = simde_mm_sub_ps(x, n);");
+  // 4th-order minimax polynomial for 2^f, f in [0,1), ~12-bit accuracy
+  ctx.println("\t\tsimde__m128 p = simde_mm_set1_ps(1.8775767e-3f);");
+  ctx.println("\t\tp = simde_mm_add_ps(simde_mm_mul_ps(p, f), simde_mm_set1_ps(8.9893397e-3f));");
+  ctx.println("\t\tp = simde_mm_add_ps(simde_mm_mul_ps(p, f), simde_mm_set1_ps(5.5826318e-2f));");
+  ctx.println("\t\tp = simde_mm_add_ps(simde_mm_mul_ps(p, f), simde_mm_set1_ps(2.4015361e-1f));");
+  ctx.println("\t\tp = simde_mm_add_ps(simde_mm_mul_ps(p, f), simde_mm_set1_ps(6.9315308e-1f));");
+  ctx.println("\t\tp = simde_mm_add_ps(simde_mm_mul_ps(p, f), simde_mm_set1_ps(1.0f));");
+  // Construct 2^n by adding n to the IEEE 754 exponent bias and shifting into place
+  ctx.println("\t\tsimde__m128i exp_bits = simde_mm_slli_epi32(");
+  ctx.println("\t\t\tsimde_mm_add_epi32(simde_mm_cvttps_epi32(n), simde_mm_set1_epi32(127)), 23);");
+  ctx.println(
+      "\t\tsimde_mm_store_ps({}.f32, "
+      "simde_mm_mul_ps(p, simde_mm_castsi128_ps(exp_bits)));",
+      vD);
+  ctx.println("\t}}");
   return true;
 }
 
