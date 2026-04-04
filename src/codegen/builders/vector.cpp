@@ -966,10 +966,18 @@ bool build_vsro(BuilderContext& ctx) {
 }
 
 bool build_vslw(BuilderContext& ctx) {
-  // TODO(tomc): vectorize
-  for (size_t i = 0; i < 4; i++)
-    ctx.println("\t{}.u32[{}] = {}.u32[{}] << ({}.u8[{}] & 0x1F);", ctx.v(ctx.insn.operands[0]), i,
-                ctx.v(ctx.insn.operands[1]), i, ctx.v(ctx.insn.operands[2]), i * 4);
+  auto vD = ctx.v(ctx.insn.operands[0]);
+  auto vA = ctx.v(ctx.insn.operands[1]);
+  auto vB = ctx.v(ctx.insn.operands[2]);
+  ctx.println("\t{{");
+  ctx.println("\t\tsimde__m128i a = simde_mm_load_si128((simde__m128i*){}.u8);", vA);
+  ctx.println("\t\tsimde__m128i b = simde_mm_load_si128((simde__m128i*){}.u8);", vB);
+  ctx.println("\t\tsimde__m128i shift = simde_mm_and_si128(b, simde_mm_set1_epi32(0x1F));");
+  ctx.println(
+      "\t\tsimde_mm_store_si128((simde__m128i*){}.u8, "
+      "simde_mm_sllv_epi32(a, shift));",
+      vD);
+  ctx.println("\t}}");
   return true;
 }
 
