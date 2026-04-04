@@ -77,6 +77,9 @@ REXCVAR_DEFINE_INT32(resolution_scale, 1, "GPU",
     .range(1, 8)
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
+REXCVAR_DEFINE_BOOL(pre_mask_resolve_l2_block, true, "GPU",
+                    "Pre-mask scaled resolve L2 blocks to the write range before iterating");
+
 // DEFINE_int32(
 //     draw_resolution_scale_x, 1,
 //     "Integer pixel width scale used for scaling the rendering resolution "
@@ -1082,12 +1085,14 @@ void TextureCache::ScaledResolveGlobalWatchCallback(
   uint32_t resolve_l2_block_last = resolve_block_last >> 6;
   for (uint32_t i = resolve_l2_block_first; i <= resolve_l2_block_last; ++i) {
     uint64_t resolve_l2_block = scaled_resolve_pages_l2_[i];
-    // Pre-mask to only process blocks within the write range.
-    if (i == resolve_l2_block_first) {
-      resolve_l2_block &= ~((UINT64_C(1) << (resolve_block_first & 63)) - 1);
-    }
-    if (i == resolve_l2_block_last && (resolve_block_last & 63) != 63) {
-      resolve_l2_block &= (UINT64_C(1) << ((resolve_block_last & 63) + 1)) - 1;
+    if (REXCVAR_GET(pre_mask_resolve_l2_block)) {
+      // Pre-mask to only process blocks within the write range.
+      if (i == resolve_l2_block_first) {
+        resolve_l2_block &= ~((UINT64_C(1) << (resolve_block_first & 63)) - 1);
+      }
+      if (i == resolve_l2_block_last && (resolve_block_last & 63) != 63) {
+        resolve_l2_block &= (UINT64_C(1) << ((resolve_block_last & 63) + 1)) - 1;
+      }
     }
     uint32_t resolve_block_relative_index;
     while (rex::bit_scan_forward(resolve_l2_block, &resolve_block_relative_index)) {
