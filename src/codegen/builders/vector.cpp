@@ -907,13 +907,19 @@ bool build_vsrah(BuilderContext& ctx) {
 }
 
 bool build_vrlh(BuilderContext& ctx) {
-  // TODO(tomc): vectorize
-  for (size_t i = 0; i < 8; i++) {
-    ctx.println("\t{{ uint16_t sh = {}.u16[{}] & 0xF;", ctx.v(ctx.insn.operands[2]), i);
-    ctx.println("\t{}.u16[{}] = ({}.u16[{}] << sh) | (sh ? ({}.u16[{}] >> (16 - sh)) : 0); }}",
-                ctx.v(ctx.insn.operands[0]), i, ctx.v(ctx.insn.operands[1]), i,
-                ctx.v(ctx.insn.operands[1]), i);
-  }
+  auto vD = ctx.v(ctx.insn.operands[0]);
+  auto vA = ctx.v(ctx.insn.operands[1]);
+  auto vB = ctx.v(ctx.insn.operands[2]);
+  ctx.println("\t{{");
+  ctx.println("\t\tsimde__m128i a = simde_mm_load_si128((simde__m128i*){}.u8);", vA);
+  ctx.println("\t\tsimde__m128i sh = simde_mm_and_si128(");
+  ctx.println("\t\t\tsimde_mm_load_si128((simde__m128i*){}.u8), simde_mm_set1_epi16(0xF));", vB);
+  ctx.println("\t\tsimde__m128i rsh = simde_mm_sub_epi16(simde_mm_set1_epi16(16), sh);");
+  ctx.println("\t\tsimde__m128i result = simde_mm_or_si128(");
+  ctx.println("\t\t\trex::simde_mm_sllv_epi16(a, sh),");
+  ctx.println("\t\t\trex::simde_mm_srlv_epi16(a, rsh));");
+  ctx.println("\t\tsimde_mm_store_si128((simde__m128i*){}.u8, result);", vD);
+  ctx.println("\t}}");
   return true;
 }
 
