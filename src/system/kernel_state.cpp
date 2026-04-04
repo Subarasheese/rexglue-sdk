@@ -151,19 +151,31 @@ void KernelState::SetProcessTLSVars(X_KPROCESS* process, uint32_t num_slots, uin
 }
 
 KernelState::~KernelState() {
-  SetExecutableModule(nullptr);
+  // Destroy app_manager while terminated thread stacks are still valid
+  app_manager_.reset();
 
+  // Stop the dispatch thread before touching the object table
   if (dispatch_thread_running_) {
     dispatch_thread_running_ = false;
     dispatch_cond_.notify_all();
     dispatch_thread_->Wait(0, 0, 0, nullptr);
   }
 
-  executable_module_.reset();
+  // Unload all user modules: release guest heap memory and remove handles.
+  for (size_t i = 0; i < user_modules_.size(); i++) {
+    X_STATUS status = user_modules_[i]->Unload();
+    assert_true(XSUCCEEDED(status));
+    object_table_.RemoveHandle(user_modules_[i]->handle());
+  }
   user_modules_.clear();
+  executable_module_.reset();
   kernel_modules_.clear();
 
-  // Delete all objects.
+  // Unregister all notify listeners.
+  notify_listeners_.clear();
+
+  // Safe to reset now: Runtime::Shutdown() has already stopped graphics,
+  // audio, and input before destroying KernelState.
   object_table_.Reset();
 
   // Destroy any host fibers that were not explicitly cleaned up.
@@ -180,8 +192,10 @@ KernelState::~KernelState() {
   }
   fiber_map_.clear();
 
-  // Shutdown apps.
-  app_manager_.reset();
+  if (kernel_guest_globals_) {
+    memory_->SystemHeapFree(kernel_guest_globals_);
+    kernel_guest_globals_ = 0;
+  }
 
   if (shared_kernel_state_ == this) {
     shared_kernel_state_ = nullptr;
@@ -666,22 +680,7 @@ void KernelState::TerminateTitle() {
   REXSYS_DEBUG("KernelState::TerminateTitle");
   auto global_lock = global_critical_region_.Acquire();
 
-  // Call terminate routines.
-  // TODO(benvanik): these might take arguments.
-  // FIXME: Calling these will send some threads into kernel code and they'll
-  // hold the lock when terminated! Do we need to wait for all threads to exit?
-  /*
-  if (from_guest_thread) {
-    for (auto routine : terminate_notifications_) {
-      auto thread_state = XThread::GetCurrentThread()->thread_state();
-      function_dispatcher()->Execute(thread_state, routine.guest_routine, nullptr, 0);
-    }
-  }
-  terminate_notifications_.clear();
-  */
-
-  // Attempt 1: ask nicely.
-  // Suspend all guest threads stay valid while we tear down shared containers.
+  // Suspend all running guest threads so they stop touching shared state.
   std::vector<XThread*> suspended_threads;
   for (auto it = threads_by_id_.begin(); it != threads_by_id_.end(); ++it) {
     if (!XThread::IsInThread(it->second) && it->second->is_guest_thread() &&
@@ -691,9 +690,7 @@ void KernelState::TerminateTitle() {
     }
   }
 
-  app_manager_.reset();
-
-  // Attempt 2: ask less nicely.
+  // Terminate each suspended thread. Must drop the lock since Terminate waits.
   global_lock.unlock();
   for (auto* thread : suspended_threads) {
     thread->Terminate(0);
@@ -709,29 +706,7 @@ void KernelState::TerminateTitle() {
     }
   }
 
-  // Third: Unload all user modules (including the executable).
-  for (size_t i = 0; i < user_modules_.size(); i++) {
-    X_STATUS status = user_modules_[i]->Unload();
-    assert_true(XSUCCEEDED(status));
-
-    object_table_.RemoveHandle(user_modules_[i]->handle());
-  }
-  user_modules_.clear();
-
-  // Release all objects in the object table.
-  object_table_.PurgeAllObjects();
-
-  // Unregister all notify listeners.
-  notify_listeners_.clear();
-
-  // Unset the executable module.
-  executable_module_ = nullptr;
-
-  if (kernel_guest_globals_) {
-    memory_->SystemHeapFree(kernel_guest_globals_);
-    kernel_guest_globals_ = 0;
-  }
-
+  // If called from a guest thread, self-terminate last.
   if (XThread::IsInThread()) {
     threads_by_id_.erase(XThread::GetCurrentThread()->thread_id());
 
