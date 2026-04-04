@@ -21,6 +21,7 @@
 #include <cstring>
 
 #include <simde/x86/avx.h>
+#include <simde/x86/avx2.h>
 #include <simde/x86/sse.h>
 #include <simde/x86/sse4.1.h>
 
@@ -564,6 +565,46 @@ inline simde__m128i simde_mm_vsro(simde__m128i a, simde__m128i b) {
 #else
 #error "Unsupported architecture for simde_mm_vsro (only x86_64 and ARM64 supported)"
 #endif
+}
+
+// Variable 16-bit shift left: widen to 32-bit, shift, narrow back
+inline simde__m128i simde_mm_sllv_epi16(simde__m128i a, simde__m128i count) {
+  simde__m128i zero = simde_mm_setzero_si128();
+  simde__m128i a_lo = simde_mm_unpacklo_epi16(a, zero);
+  simde__m128i a_hi = simde_mm_unpackhi_epi16(a, zero);
+  simde__m128i s_lo = simde_mm_unpacklo_epi16(count, zero);
+  simde__m128i s_hi = simde_mm_unpackhi_epi16(count, zero);
+  simde__m128i r_lo = simde_mm_sllv_epi32(a_lo, s_lo);
+  simde__m128i r_hi = simde_mm_sllv_epi32(a_hi, s_hi);
+  simde__m128i mask16 = simde_mm_set1_epi32(0xFFFF);
+  r_lo = simde_mm_and_si128(r_lo, mask16);
+  r_hi = simde_mm_and_si128(r_hi, mask16);
+  return simde_mm_packus_epi32(r_lo, r_hi);
+}
+
+// Variable 16-bit logical right shift: widen to 32-bit, shift, narrow back
+inline simde__m128i simde_mm_srlv_epi16(simde__m128i a, simde__m128i count) {
+  simde__m128i zero = simde_mm_setzero_si128();
+  simde__m128i a_lo = simde_mm_unpacklo_epi16(a, zero);
+  simde__m128i a_hi = simde_mm_unpackhi_epi16(a, zero);
+  simde__m128i s_lo = simde_mm_unpacklo_epi16(count, zero);
+  simde__m128i s_hi = simde_mm_unpackhi_epi16(count, zero);
+  simde__m128i r_lo = simde_mm_srlv_epi32(a_lo, s_lo);
+  simde__m128i r_hi = simde_mm_srlv_epi32(a_hi, s_hi);
+  return simde_mm_packus_epi32(r_lo, r_hi);
+}
+
+// Variable 16-bit arithmetic right shift: sign-extend to 32-bit, shift, narrow back
+inline simde__m128i simde_mm_srav_epi16(simde__m128i a, simde__m128i count) {
+  simde__m128i zero = simde_mm_setzero_si128();
+  // Sign-extend a: duplicate each 16-bit lane, then arithmetic shift right by 16
+  simde__m128i a_lo = simde_mm_srai_epi32(simde_mm_unpacklo_epi16(a, a), 16);
+  simde__m128i a_hi = simde_mm_srai_epi32(simde_mm_unpackhi_epi16(a, a), 16);
+  simde__m128i s_lo = simde_mm_unpacklo_epi16(count, zero);
+  simde__m128i s_hi = simde_mm_unpackhi_epi16(count, zero);
+  simde__m128i r_lo = simde_mm_srav_epi32(a_lo, s_lo);
+  simde__m128i r_hi = simde_mm_srav_epi32(a_hi, s_hi);
+  return simde_mm_packs_epi32(r_lo, r_hi);
 }
 
 //=============================================================================

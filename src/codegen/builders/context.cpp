@@ -435,6 +435,24 @@ void BuilderContext::emit_vec_int_binary_swapped(const char* simd_op, const char
       v(insn.operands[1]), element_type);
 }
 
+void BuilderContext::emit_vec_var_shift(const char* shift_dir, const char* element_type,
+                                        uint32_t mask_value) {
+  auto vD = v(insn.operands[0]);
+  auto vA = v(insn.operands[1]);
+  auto vB = v(insn.operands[2]);
+  println("\t{{");
+  println("\t\tsimde__m128i a = simde_mm_load_si128((simde__m128i*){}.u8);", vA);
+  println("\t\tsimde__m128i b = simde_mm_load_si128((simde__m128i*){}.u8);", vB);
+  println("\t\tsimde__m128i shift = simde_mm_and_si128(b, simde_mm_set1_{}(0x{:X}));", element_type,
+          mask_value);
+  println(
+      "\t\tsimde_mm_store_si128((simde__m128i*){}.u8, "
+      "rex::simde_mm_{}_{}"
+      "(a, shift));",
+      vD, shift_dir, element_type);
+  println("\t}}");
+}
+
 //=============================================================================
 // Memory (Load/Store) Code Generation Helpers
 //=============================================================================

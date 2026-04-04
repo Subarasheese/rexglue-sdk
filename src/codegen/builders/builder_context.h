@@ -293,6 +293,17 @@ struct BuilderContext {
    */
   void emit_vec_int_binary_swapped(const char* simd_op, const char* element_type);
 
+  /**
+   * @brief Emit variable shift: vD = rex::simde_mm_{shift_dir}_{element_type}(vA, vB & mask)
+   * @param shift_dir The shift direction ("sllv", "srlv", or "srav")
+   * @param element_type The SIMDE element type suffix ("epi16")
+   * @param mask_value Shift amount mask (e.g., 0xF for 16-bit)
+   *
+   * Uses the custom rex:: variable shift helpers (simde_mm_{sllv,srlv,srav}_epi16).
+   * Uses operands[0]=vD, operands[1]=vA, operands[2]=vB from current instruction.
+   */
+  void emit_vec_var_shift(const char* shift_dir, const char* element_type, uint32_t mask_value);
+
   //=========================================================================
   // Memory (Load/Store) Code Generation Helpers
   //=========================================================================
