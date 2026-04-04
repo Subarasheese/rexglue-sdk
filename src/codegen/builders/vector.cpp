@@ -858,10 +858,7 @@ bool build_vrlimi128(BuilderContext& ctx) {
 //=============================================================================
 
 bool build_vslb(BuilderContext& ctx) {
-  // TODO(tomc): vectorize
-  for (size_t i = 0; i < 16; i++)
-    ctx.println("\t{}.u8[{}] = {}.u8[{}] << ({}.u8[{}] & 0x7);", ctx.v(ctx.insn.operands[0]), i,
-                ctx.v(ctx.insn.operands[1]), i, ctx.v(ctx.insn.operands[2]), i);
+  ctx.emit_vec_var_shift("sllv", "epi8", 0x7);
   return true;
 }
 

@@ -607,6 +607,21 @@ inline simde__m128i simde_mm_srav_epi16(simde__m128i a, simde__m128i count) {
   return simde_mm_packs_epi32(r_lo, r_hi);
 }
 
+// Variable 8-bit shift left: widen to 16-bit, shift, narrow back
+inline simde__m128i simde_mm_sllv_epi8(simde__m128i a, simde__m128i count) {
+  simde__m128i zero = simde_mm_setzero_si128();
+  simde__m128i a_lo = simde_mm_unpacklo_epi8(a, zero);
+  simde__m128i a_hi = simde_mm_unpackhi_epi8(a, zero);
+  simde__m128i s_lo = simde_mm_unpacklo_epi8(count, zero);
+  simde__m128i s_hi = simde_mm_unpackhi_epi8(count, zero);
+  simde__m128i r_lo = simde_mm_sllv_epi16(a_lo, s_lo);
+  simde__m128i r_hi = simde_mm_sllv_epi16(a_hi, s_hi);
+  simde__m128i mask8 = simde_mm_set1_epi16(0xFF);
+  r_lo = simde_mm_and_si128(r_lo, mask8);
+  r_hi = simde_mm_and_si128(r_hi, mask8);
+  return simde_mm_packus_epi16(r_lo, r_hi);
+}
+
 //=============================================================================
 // Platform-Specific Intrinsics
 //=============================================================================
