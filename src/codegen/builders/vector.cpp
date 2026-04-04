@@ -876,10 +876,7 @@ bool build_vsldoi(BuilderContext& ctx) {
 }
 
 bool build_vslh(BuilderContext& ctx) {
-  // TODO(tomc): vectorize
-  for (size_t i = 0; i < 8; i++)
-    ctx.println("\t{}.u16[{}] = {}.u16[{}] << ({}.u16[{}] & 0xF);", ctx.v(ctx.insn.operands[0]), i,
-                ctx.v(ctx.insn.operands[1]), i, ctx.v(ctx.insn.operands[2]), i);
+  ctx.emit_vec_var_shift("sllv", "epi16", 0xF);
   return true;
 }
 
