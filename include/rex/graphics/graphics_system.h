@@ -58,9 +58,10 @@ class GraphicsSystem : public system::IGraphicsSystem {
   ::rex::ui::GraphicsProvider* provider() const { return provider_.get(); }
   ::rex::ui::Presenter* presenter() const { return presenter_.get(); }
 
-  virtual X_STATUS Setup(runtime::FunctionDispatcher* function_dispatcher,
-                         system::KernelState* kernel_state,
-                         ::rex::ui::WindowedAppContext* app_context, bool with_presentation);
+  X_STATUS SetupPresentation(::rex::ui::WindowedAppContext* app_context) override;
+  X_STATUS SetupGuestGpu(runtime::FunctionDispatcher* function_dispatcher,
+                         system::KernelState* kernel_state) override;
+  bool has_presentation() const override { return presenter_ != nullptr; }
   virtual void Shutdown();
 
   // May be called from any thread any number of times, even during recovery
@@ -96,6 +97,10 @@ class GraphicsSystem : public system::IGraphicsSystem {
  protected:
   GraphicsSystem();
 
+  // Backends build their provider here. Called lazily from either setup
+  // entry point; with_presentation is false only on headless guest-GPU paths.
+  virtual void CreateProvider(bool with_presentation) = 0;
+
   virtual std::unique_ptr<CommandProcessor> CreateCommandProcessor() = 0;
 
   static uint32_t ReadRegisterThunk(void* ppc_context, GraphicsSystem* gs, uint32_t addr);
@@ -112,6 +117,7 @@ class GraphicsSystem : public system::IGraphicsSystem {
   system::KernelState* kernel_state_ = nullptr;
   ::rex::ui::WindowedAppContext* app_context_ = nullptr;
   std::unique_ptr<::rex::ui::GraphicsProvider> provider_;
+  bool provider_supports_presentation_ = false;
 
   uint32_t interrupt_callback_ = 0;
   uint32_t interrupt_callback_data_ = 0;
