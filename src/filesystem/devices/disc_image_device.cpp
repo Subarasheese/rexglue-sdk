@@ -63,7 +63,7 @@ Entry* DiscImageDevice::ResolvePath(const std::string_view path) {
   // The filesystem will have stripped our prefix off already, so the path will
   // be in the form:
   // some\PATH.foo
-  REXFS_INFO("DiscImageDevice::ResolvePath({})", path);
+  REXFS_DEBUG("DiscImageDevice::ResolvePath({})", path);
   return root_entry_->ResolvePath(path);
 }
 

@@ -43,7 +43,7 @@ void NullDevice::Dump(string::StringBuffer* string_buffer) {
 }
 
 Entry* NullDevice::ResolvePath(const std::string_view path) {
-  REXFS_INFO("NullDevice::ResolvePath({})", path);
+  REXFS_DEBUG("NullDevice::ResolvePath({})", path);
 
   auto root = root_entry_.get();
   if (path.empty()) {
