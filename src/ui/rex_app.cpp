@@ -233,7 +233,8 @@ bool ReXApp::OnInitialize() {
       immediate_drawer_ = provider->CreateImmediateDrawer();
       if (immediate_drawer_) {
         immediate_drawer_->SetPresenter(presenter);
-        imgui_drawer_ = std::make_unique<rex::ui::ImGuiDrawer>(window_.get(), 64);
+        imgui_drawer_ = std::make_unique<rex::ui::ImGuiDrawer>(
+            window_.get(), 64, [this](ImFontAtlas* atlas) { OnConfigureFonts(atlas); });
         imgui_drawer_->SetPresenterAndImmediateDrawer(presenter, immediate_drawer_.get());
         // Overlay keybinds -- dialogs are created/destroyed on demand so
         // ImGuiDrawer can detach when idle, enabling kGuestOutputThreadImmediately

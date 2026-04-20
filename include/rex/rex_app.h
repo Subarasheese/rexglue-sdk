@@ -28,6 +28,8 @@
 #include <rex/ui/window_listener.h>
 #include <rex/ui/windowed_app.h>
 
+struct ImFontAtlas;
+
 namespace rex {
 
 class LogCaptureSink;
@@ -102,6 +104,11 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   /// Called after path defaults are computed, before Runtime is constructed.
   /// Override to adjust game/user/update data paths programmatically.
   virtual void OnConfigurePaths(PathConfig& paths) { (void)paths; }
+
+  /// Called from the ImGui drawer's Initialize() after the default font is
+  /// registered and before the atlas is built. Override to add additional
+  /// fonts via AddFontFromMemoryTTF() or similar.
+  virtual void OnConfigureFonts(ImFontAtlas* atlas) { (void)atlas; }
 
   /// Called after logging is initialized. Add log sinks here.
   virtual void OnPostInitLogging() {}
