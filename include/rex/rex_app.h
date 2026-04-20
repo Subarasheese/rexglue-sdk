@@ -14,7 +14,9 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <thread>
 
@@ -52,11 +54,18 @@ class SettingsDialog;
 
 /// Base class for recompiled Xbox 360 applications.
 ///
-/// Absorbs all boilerplate: runtime setup, window creation, ImGui wiring,
-/// module launch, and shutdown. Consumer projects inherit this and optionally
-/// override virtual hooks for customization.
+/// OnInitialize is a thin coordinator that runs four phases in order:
 ///
-/// The generated src/{name}_app.h from `rexglue init` uses this:
+///   SetupEnvironment  -> paths, config, logging
+///   SetupPresentation -> window, graphics presentation, ImGui drawer
+///   OnFinalizePaths   -> hook for wizard-driven path resolution (sync or async)
+///   ConstructRuntime  -> Runtime, guest GPU init, XEX load, rexcrt heap
+///   LaunchModule      -> shader cache, PrepareModuleLaunch, background wait
+///
+/// Each phase is a protected virtual; consumers override selectively without
+/// re-implementing the whole flow.
+///
+/// Subclass skeleton:
 /// @code
 ///   // src/my_app_app.h (yours to customize)
 ///   class MyApp : public rex::ReXApp {
@@ -67,7 +76,8 @@ class SettingsDialog;
 ///         return std::unique_ptr<MyApp>(new MyApp(ctx, "my_app",
 ///             PPCImageConfig));
 ///       }
-///       // Override hooks: OnPreSetup, OnPostSetup, OnCreateDialogs, etc.
+///       // Override hooks: OnPreSetup, OnPostSetup, OnCreateDialogs,
+///       // OnConfigureFonts, OnFinalizePaths, etc.
 ///   };
 ///
 ///   // src/main.cpp
@@ -105,6 +115,23 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   /// Override to adjust game/user/update data paths programmatically.
   virtual void OnConfigurePaths(PathConfig& paths) { (void)paths; }
 
+  /// Called after SetupPresentation returns (window and ImGui drawer are live)
+  /// and before Runtime construction. Override to resolve paths from user
+  /// input shown through an ImGui dialog.
+  ///
+  /// Return a PathConfig to continue initialization synchronously. Return
+  /// std::nullopt and invoke `resume(path_config)` later (e.g. from a wizard
+  /// completion handler) to continue asynchronously. `resume` must be called
+  /// on the UI thread. Calling `resume` after the app has begun shutdown is
+  /// a no-op.
+  ///
+  /// Default implementation returns `defaults` unchanged.
+  virtual std::optional<PathConfig> OnFinalizePaths(const PathConfig& defaults,
+                                                    std::function<void(PathConfig)> resume) {
+    (void)resume;
+    return defaults;
+  }
+
   /// Called from the ImGui drawer's Initialize() after the default font is
   /// registered and before the atlas is built. Override to add additional
   /// fonts via AddFontFromMemoryTTF() or similar.
@@ -130,10 +157,30 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   /// Use for cleanup that depends on runtime resources.
   virtual void OnGuestThreadExit(system::XThread* thread) { (void)thread; }
 
+  // --- Init phase methods (called in order from OnInitialize) ---
+
+  /// Resolve path defaults, load config TOML, initialize logging.
+  /// Populates `resolved_defaults_` with the PathConfig produced by
+  /// OnConfigurePaths.
+  virtual bool SetupEnvironment();
+
+  /// Construct Runtime with the given paths, call runtime_->Setup, load the
+  /// XEX image, initialize the rexcrt heap. Runs OnPostSetup at the end.
+  virtual bool ConstructRuntime(const PathConfig& paths);
+
+  /// Create the window, stand up graphics presentation, create the ImGui
+  /// drawer, register overlay keybinds, run OnCreateDialogs.
+  virtual bool SetupPresentation();
+
+  /// Kick off the deferred module launch: shader storage init,
+  /// PrepareModuleLaunch, main thread resume, background wait.
+  virtual void LaunchModule();
+
   // --- Accessors for subclass use ---
   Runtime* runtime() const { return runtime_.get(); }
   ui::Window* window() const { return window_.get(); }
   ui::ImGuiDrawer* imgui_drawer() const { return imgui_drawer_.get(); }
+  ui::ImmediateDrawer* immediate_drawer() const { return immediate_drawer_.get(); }
 
   const std::filesystem::path& game_data_root() const { return game_data_root_; }
   const std::filesystem::path& user_data_root() const { return user_data_root_; }
@@ -144,6 +191,8 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   void SetGuestFrameStats(ui::DebugOverlayDialog::FrameStatsProvider provider);
 
  private:
+  std::function<void(PathConfig)> MakeResumeCallback();
+
   // WindowedApp overrides
   bool OnInitialize() override;
   void OnDestroy() override;
@@ -155,6 +204,8 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   void OnKeyDown(ui::KeyEvent& e) override;
 
   PPCImageInfo ppc_info_;
+  PathConfig resolved_defaults_;
+  RuntimeConfig config_;
   std::filesystem::path game_data_root_;
   std::filesystem::path user_data_root_;
   std::filesystem::path update_data_root_;

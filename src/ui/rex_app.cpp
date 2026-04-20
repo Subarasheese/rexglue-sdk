@@ -54,6 +54,25 @@ ReXApp::ReXApp(ui::WindowedAppContext& ctx, std::string_view name, PPCImageInfo 
 }
 
 bool ReXApp::OnInitialize() {
+  if (!SetupEnvironment())
+    return false;
+  if (!SetupPresentation())
+    return false;
+
+  auto paths = OnFinalizePaths(resolved_defaults_, MakeResumeCallback());
+  if (!paths) {
+    // Async: consumer will invoke resume when ready. OnInitialize returns
+    // true so the event loop keeps pumping (wizard dialogs render).
+    return true;
+  }
+
+  if (!ConstructRuntime(*paths))
+    return false;
+  LaunchModule();
+  return true;
+}
+
+bool ReXApp::SetupEnvironment() {
   auto exe_dir = rex::filesystem::GetExecutableFolder();
 
   std::filesystem::path game_dir;
@@ -98,11 +117,12 @@ bool ReXApp::OnInitialize() {
   PathConfig path_config{game_dir, user_dir, update_dir, cache_dir,
                          exe_dir / (std::string(GetName()) + ".toml")};
   OnConfigurePaths(path_config);
-  game_data_root_ = std::move(path_config.game_data_root);
-  user_data_root_ = std::move(path_config.user_data_root);
-  update_data_root_ = std::move(path_config.update_data_root);
-  cache_root_ = std::move(path_config.cache_root);
-  config_path_ = std::move(path_config.config_path);
+  game_data_root_ = path_config.game_data_root;
+  user_data_root_ = path_config.user_data_root;
+  update_data_root_ = path_config.update_data_root;
+  cache_root_ = path_config.cache_root;
+  config_path_ = path_config.config_path;
+  resolved_defaults_ = std::move(path_config);
 
   // Load config FIRST so log cvars have final values
   if (std::filesystem::exists(config_path_))
@@ -143,38 +163,48 @@ bool ReXApp::OnInitialize() {
   }
   REXLOG_INFO("  Cache root:     {}", cache_root_.string());
 
-  // Create runtime
-  runtime_ = std::make_unique<rex::Runtime>(game_data_root_, user_data_root_, update_data_root_,
-                                            cache_root_);
+  return true;
+}
+
+bool ReXApp::ConstructRuntime(const PathConfig& paths) {
+  runtime_ = std::make_unique<rex::Runtime>(paths.game_data_root, paths.user_data_root,
+                                            paths.update_data_root, paths.cache_root);
   runtime_->set_app_context(&app_context());
 
-  // Build runtime config with default platform backends
-  rex::RuntimeConfig config;
-#if REX_HAS_D3D12
-  config.graphics = REX_GRAPHICS_BACKEND(rex::graphics::d3d12::D3D12GraphicsSystem);
-#elif REX_HAS_VULKAN
-  config.graphics = REX_GRAPHICS_BACKEND(rex::graphics::vulkan::VulkanGraphicsSystem);
-#endif
-  config.audio_factory = REX_AUDIO_BACKEND(rex::audio::sdl::SDLAudioSystem);
-  config.input_factory = REX_INPUT_BACKEND(rex::input::CreateDefaultInputSystem);
-  config.kernel_init = rex::kernel::InitializeKernel;
-
-  // Allow subclass to customize config
-  OnPreSetup(config);
+  // Window and ImGui drawer already exist from SetupPresentation; publish them
+  // to the runtime before Setup so hooks and native rendering see them.
+  if (window_) {
+    runtime_->set_display_window(window_.get());
+  }
+  if (imgui_drawer_) {
+    runtime_->set_imgui_drawer(imgui_drawer_.get());
+  }
 
   auto status = runtime_->Setup(ppc_info_.code_base, ppc_info_.code_size, ppc_info_.image_base,
-                                ppc_info_.image_size, ppc_info_.func_mappings, std::move(config));
+                                ppc_info_.image_size, ppc_info_.func_mappings, std::move(config_));
   if (XFAILED(status)) {
     REXLOG_ERROR("Runtime setup failed: {:08X}", status);
     return false;
   }
 
-  std::string xex_image = "game:\\default.xex";
+  if (window_ && runtime_->input_system()) {
+    static_cast<rex::input::InputSystem*>(runtime_->input_system())->AttachWindow(window_.get());
+  }
 
-  // Allow subclass to override xex image
+  if (imgui_drawer_) {
+    auto* input_sys = static_cast<rex::input::InputSystem*>(runtime_->input_system());
+    if (input_sys) {
+      input_sys->SetActiveCallback([this]() {
+        if (!debug_overlay_ && !console_overlay_ && !settings_overlay_)
+          return true;
+        return !ImGui::GetIO().WantCaptureMouse;
+      });
+    }
+  }
+
+  std::string xex_image = "game:\\default.xex";
   OnLoadXexImage(xex_image);
 
-  // Load XEX image
   status = runtime_->LoadXexImage(xex_image);
   if (XFAILED(status)) {
     REXLOG_ERROR("Failed to load XEX: {:08X}", status);
@@ -183,9 +213,6 @@ bool ReXApp::OnInitialize() {
 
   OnPostLoadXexImage();
 
-  // Initialize rexcrt heap. rexcrt_heap is set by codegen (REXCRT_HEAP)
-  // when [rexcrt] contains heap functions -- originals are stripped so init
-  // is required. Size is controlled by the rexcrt_heap_size_mb CVAR.
   if (ppc_info_.rexcrt_heap) {
     if (!rex::kernel::crt::InitHeap(REXCVAR_GET(rexcrt_heap_size_mb), runtime_->memory())) {
       REXLOG_ERROR("Failed to initialize rexcrt heap");
@@ -193,8 +220,30 @@ bool ReXApp::OnInitialize() {
     }
   }
 
-  // Notify subclass
   OnPostSetup();
+
+  return true;
+}
+
+bool ReXApp::SetupPresentation() {
+#if REX_HAS_D3D12
+  config_.graphics = REX_GRAPHICS_BACKEND(rex::graphics::d3d12::D3D12GraphicsSystem);
+#elif REX_HAS_VULKAN
+  config_.graphics = REX_GRAPHICS_BACKEND(rex::graphics::vulkan::VulkanGraphicsSystem);
+#endif
+  config_.audio_factory = REX_AUDIO_BACKEND(rex::audio::sdl::SDLAudioSystem);
+  config_.input_factory = REX_INPUT_BACKEND(rex::input::CreateDefaultInputSystem);
+  config_.kernel_init = rex::kernel::InitializeKernel;
+
+  OnPreSetup(config_);
+
+  if (config_.graphics) {
+    X_STATUS status = config_.graphics->SetupPresentation(&app_context());
+    if (XFAILED(status)) {
+      REXLOG_ERROR("Graphics presentation setup failed: {:08X}", status);
+      return false;
+    }
+  }
 
   // Create window
   window_ = rex::ui::Window::Create(app_context(), GetName(), 1280, 720);
@@ -210,22 +259,12 @@ bool ReXApp::OnInitialize() {
   window_->AddListener(this);
   window_->AddInputListener(this, 0);
 
-  // Attach window to input system so deferred drivers (e.g. MnK) can register
-  if (runtime_ && runtime_->input_system()) {
-    static_cast<rex::input::InputSystem*>(runtime_->input_system())->AttachWindow(window_.get());
-  }
-
   if (REXCVAR_GET(fullscreen)) {
     window_->SetFullscreen(true);
   }
   window_->Open();
 
-  // Always expose the window to the runtime so hooks (native rendering, etc.)
-  // can obtain the native handle even when the SDK graphics system is disabled.
-  runtime_->set_display_window(window_.get());
-
-  // Setup graphics presenter and ImGui
-  auto* graphics_system = static_cast<rex::graphics::GraphicsSystem*>(runtime_->graphics_system());
+  auto* graphics_system = static_cast<rex::graphics::GraphicsSystem*>(config_.graphics.get());
   if (graphics_system && graphics_system->presenter()) {
     auto* presenter = graphics_system->presenter();
     auto* provider = graphics_system->provider();
@@ -236,9 +275,6 @@ bool ReXApp::OnInitialize() {
         imgui_drawer_ = std::make_unique<rex::ui::ImGuiDrawer>(
             window_.get(), 64, [this](ImFontAtlas* atlas) { OnConfigureFonts(atlas); });
         imgui_drawer_->SetPresenterAndImmediateDrawer(presenter, immediate_drawer_.get());
-        // Overlay keybinds -- dialogs are created/destroyed on demand so
-        // ImGuiDrawer can detach when idle, enabling kGuestOutputThreadImmediately
-        // paint mode for 1:1 host-guest frame sync.
         rex::ui::RegisterBind("bind_debug_overlay", "F3", "Toggle debug overlay", [this] {
           if (debug_overlay_) {
             debug_overlay_.reset();
@@ -263,27 +299,16 @@ bool ReXApp::OnInitialize() {
           }
         });
 
-        // Allow subclass to add custom dialogs
         OnCreateDialogs(imgui_drawer_.get());
-
-        runtime_->set_imgui_drawer(imgui_drawer_.get());
-
-        // Tell input drivers to suppress input when ImGui wants the mouse
-        // (e.g. overlay is open). This controls MnK mouse capture.
-        auto* input_sys = static_cast<rex::input::InputSystem*>(runtime_->input_system());
-        if (input_sys) {
-          input_sys->SetActiveCallback([this]() {
-            if (!debug_overlay_ && !console_overlay_ && !settings_overlay_)
-              return true;
-            return !ImGui::GetIO().WantCaptureMouse;
-          });
-        }
       }
     }
     window_->SetPresenter(presenter);
   }
 
-  // Launch module in background
+  return true;
+}
+
+void ReXApp::LaunchModule() {
   app_context().CallInUIThreadDeferred([this]() {
     OnPreLaunchModule();
 
@@ -294,7 +319,6 @@ bool ReXApp::OnInitialize() {
       return;
     }
 
-    // Initialize shader storage (blocking) before guest execution starts.
     auto* graphics_system =
         static_cast<rex::graphics::GraphicsSystem*>(runtime_->graphics_system());
     if (graphics_system && !runtime_->cache_root().empty()) {
@@ -317,8 +341,18 @@ bool ReXApp::OnInitialize() {
       }
     });
   });
+}
 
-  return true;
+std::function<void(PathConfig)> ReXApp::MakeResumeCallback() {
+  return [this](PathConfig paths) {
+    if (shutting_down_.load(std::memory_order_acquire))
+      return;
+    if (!ConstructRuntime(std::move(paths))) {
+      app_context().QuitFromUIThread();
+      return;
+    }
+    LaunchModule();
+  };
 }
 
 void ReXApp::OnKeyDown(ui::KeyEvent& e) {
