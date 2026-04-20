@@ -60,9 +60,15 @@ ReXApp::ReXApp(ui::WindowedAppContext& ctx, std::string_view name, PPCImageInfo 
 bool ReXApp::OnInitialize() {
   auto exe_dir = rex::filesystem::GetExecutableFolder();
 
-  // Game directory: positional arg or default to exe_dir/assets
   std::filesystem::path game_dir;
-  if (auto arg = GetArgument("game_directory")) {
+  std::string game_data_cvar = REXCVAR_GET(game_data_root);
+  if (!game_data_cvar.empty()) {
+    game_dir = game_data_cvar;
+  } else if (auto arg = GetArgument("game_directory")) {
+    REXLOG_WARN(
+        "Positional 'game_directory' is deprecated; use --game_data_root= or "
+        "set it in {}.toml",
+        GetName());
     game_dir = *arg;
   } else {
     game_dir = exe_dir / "assets";

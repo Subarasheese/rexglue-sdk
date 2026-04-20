@@ -10,6 +10,7 @@
  */
 
 #include <rex/chrono/clock.h>
+#include <rex/cvar.h>
 #include <rex/filesystem/devices/host_path_device.h>
 #include <rex/filesystem/devices/null_device.h>
 #include <rex/filesystem/vfs.h>
@@ -26,6 +27,8 @@
 #include <rex/system/xmemory.h>
 #include <rex/system/xthread.h>
 #include <rex/thread.h>
+
+REXCVAR_DEFINE_STRING(game_data_root, "", "Runtime", "Override game data path");
 
 namespace rex {
 
