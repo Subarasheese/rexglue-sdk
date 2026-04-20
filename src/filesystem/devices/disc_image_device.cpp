@@ -97,6 +97,11 @@ DiscImageDevice::Error DiscImageDevice::Verify(ParseState* state) {
     return Error::kErrorDamagedFile;
   }
 
+  disc_info_.game_offset = state->game_offset;
+  disc_info_.root_sector = state->root_sector;
+  disc_info_.root_size = state->root_size;
+  disc_info_.host_size = state->size;
+
   return Error::kSuccess;
 }
 
@@ -170,6 +175,8 @@ bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer, uint16
     // File.
     entry->data_offset_ = state->game_offset + (sector * kXESectorSize);
     entry->data_size_ = length;
+    ++file_count_;
+    total_file_size_ += length;
   }
 
   // Add to parent.
