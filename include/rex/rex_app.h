@@ -40,6 +40,7 @@ struct PathConfig {
   std::filesystem::path user_data_root;
   std::filesystem::path update_data_root;
   std::filesystem::path cache_root;
+  std::filesystem::path config_path;
 };
 
 namespace ui {

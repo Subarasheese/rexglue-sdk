@@ -95,18 +95,18 @@ bool ReXApp::OnInitialize() {
     cache_dir = user_dir / "cache";
   }
 
-  // Allow subclass to override path defaults
-  PathConfig path_config{game_dir, user_dir, update_dir, cache_dir};
+  PathConfig path_config{game_dir, user_dir, update_dir, cache_dir,
+                         exe_dir / (std::string(GetName()) + ".toml")};
   OnConfigurePaths(path_config);
   game_data_root_ = std::move(path_config.game_data_root);
   user_data_root_ = std::move(path_config.user_data_root);
   update_data_root_ = std::move(path_config.update_data_root);
   cache_root_ = std::move(path_config.cache_root);
+  config_path_ = std::move(path_config.config_path);
 
   // Load config FIRST so log cvars have final values
-  auto config_path = exe_dir / (std::string(GetName()) + ".toml");
-  if (std::filesystem::exists(config_path))
-    rex::cvar::LoadConfig(config_path);
+  if (std::filesystem::exists(config_path_))
+    rex::cvar::LoadConfig(config_path_);
 
   // Late-phase logging
   std::string log_file_cvar = REXCVAR_GET(log_file);
@@ -114,7 +114,7 @@ bool ReXApp::OnInitialize() {
   if (REXCVAR_GET(log_verbose) && log_level_str == "info")
     log_level_str = "trace";
 
-  auto category_levels = rex::ParseCategoryLevelsFromConfig(config_path);
+  auto category_levels = rex::ParseCategoryLevelsFromConfig(config_path_);
   auto log_config = rex::BuildLogConfig(log_file_cvar.empty() ? nullptr : log_file_cvar.c_str(),
                                         log_level_str, category_levels);
   if (log_file_cvar.empty()) {
@@ -130,8 +130,8 @@ bool ReXApp::OnInitialize() {
 
   OnPostInitLogging();
 
-  if (std::filesystem::exists(config_path))
-    REXLOG_INFO("Loaded config: {}", config_path.filename().string());
+  if (std::filesystem::exists(config_path_))
+    REXLOG_INFO("Loaded config: {}", config_path_.filename().string());
 
   REXLOG_INFO("{} starting", GetName());
   REXLOG_INFO("  Game directory: {}", game_data_root_.string());
@@ -238,7 +238,6 @@ bool ReXApp::OnInitialize() {
         // Overlay keybinds -- dialogs are created/destroyed on demand so
         // ImGuiDrawer can detach when idle, enabling kGuestOutputThreadImmediately
         // paint mode for 1:1 host-guest frame sync.
-        config_path_ = exe_dir / (std::string(GetName()) + ".toml");
         rex::ui::RegisterBind("bind_debug_overlay", "F3", "Toggle debug overlay", [this] {
           if (debug_overlay_) {
             debug_overlay_.reset();
