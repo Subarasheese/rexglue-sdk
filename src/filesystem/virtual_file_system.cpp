@@ -135,10 +135,10 @@ Entry* VirtualFileSystem::ResolvePath(const std::string_view path) {
 
   if (entry) {
     if (had_symlink) {
-      REXFS_DEBUG("VFS resolved '{}' via symlink '{}' on device '{}' -> '{}'", path,
+      REXFS_TRACE("VFS resolved '{}' via symlink '{}' on device '{}' -> '{}'", path,
                   normalized_path, device->mount_path(), entry->absolute_path());
     } else {
-      REXFS_DEBUG("VFS resolved '{}' on device '{}' -> '{}'", path, device->mount_path(),
+      REXFS_TRACE("VFS resolved '{}' on device '{}' -> '{}'", path, device->mount_path(),
                   entry->absolute_path());
     }
   } else {
