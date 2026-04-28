@@ -1251,7 +1251,7 @@ LRESULT Win32Window::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPar
           TABLET_DISABLE_TOUCHUIFORCEON | TABLET_ENABLE_MULTITOUCHDATA;
 
     case WM_MENUCOMMAND: {
-      MENUINFO menu_info = {0};
+      MENUINFO menu_info = {};
       menu_info.cbSize = sizeof(menu_info);
       menu_info.fMask = MIM_MENUDATA;
       GetMenuInfo(HMENU(lParam), &menu_info);
@@ -1339,7 +1339,7 @@ Win32MenuItem::Win32MenuItem(Type type, const std::string& text, const std::stri
       break;
   }
   if (handle_) {
-    MENUINFO menu_info = {0};
+    MENUINFO menu_info = {};
     menu_info.cbSize = sizeof(menu_info);
     menu_info.fMask = MIM_MENUDATA | MIM_STYLE;
     menu_info.dwMenuData = ULONG_PTR(this);
