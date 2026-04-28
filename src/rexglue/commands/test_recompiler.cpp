@@ -324,34 +324,6 @@ std::vector<TestSpec> parse_test_specs(
 
   return specs;
 }
-
-/// Extract symbols from disassembly file
-std::unordered_map<std::string, std::string> parse_disassembly(
-    const std::string& disPath, const std::string& stem,
-    const std::unordered_set<size_t>& validAddresses) {
-  std::unordered_map<std::string, std::string> symbols;
-  std::ifstream in(disPath);
-  if (!in.is_open()) {
-    return symbols;
-  }
-
-  std::string line;
-  while (std::getline(in, line)) {
-    auto spaceIndex = line.find(' ');
-    auto bracketIndex = line.find('>');
-    if (spaceIndex != std::string::npos && bracketIndex != std::string::npos) {
-      size_t address = ~0ull;
-      std::from_chars(&line[0], &line[spaceIndex], address, 16);
-      address &= 0xFFFFF;  // Mask to test addresses
-      if (validAddresses.find(address) != validAddresses.end()) {
-        auto name = line.substr(spaceIndex + 2, bracketIndex - spaceIndex - 2);
-        symbols.emplace(name, fmt::format("{}_{:X}", stem, address));
-      }
-    }
-  }
-  return symbols;
-}
-
 }  // anonymous namespace
 
 bool recompile_tests(const std::string_view& binDirPath, const std::string_view& asmDirPath,
