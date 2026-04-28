@@ -62,7 +62,7 @@ class GraphicsSystem : public system::IGraphicsSystem {
   X_STATUS SetupGuestGpu(runtime::FunctionDispatcher* function_dispatcher,
                          system::KernelState* kernel_state) override;
   bool has_presentation() const override { return presenter_ != nullptr; }
-  virtual void Shutdown();
+  void Shutdown() override;
 
   // May be called from any thread any number of times, even during recovery
   // from a device loss.
