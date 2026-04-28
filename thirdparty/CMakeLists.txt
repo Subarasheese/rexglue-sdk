@@ -78,7 +78,7 @@ target_include_directories(renderdoc INTERFACE
 
 # tomlplusplus - TOML config file parser (header-only)
 add_library(tomlplusplus INTERFACE)
-target_include_directories(tomlplusplus INTERFACE
+target_include_directories(tomlplusplus SYSTEM INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tomlplusplus/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
