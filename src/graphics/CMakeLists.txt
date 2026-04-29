@@ -115,6 +115,8 @@ target_include_directories(rexgraphics PRIVATE
     ${REXGLUE_ROOT}  # For thirdparty/dxbc/DXBCChecksum.h include
 )
 
+target_compile_options(rexgraphics PRIVATE -Wno-unused-variable)
+
 target_link_libraries(rexgraphics PUBLIC
     rexcore
     rexsystem
