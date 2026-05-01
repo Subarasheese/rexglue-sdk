@@ -21,6 +21,7 @@ set(REXSYSTEM_SOURCES
     xobject.cpp
     xmodule.cpp
     shared_library.cpp
+    guest_path.cpp
 
     # Utilities
     util/object_table.cpp
