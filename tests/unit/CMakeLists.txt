@@ -30,7 +30,7 @@ target_link_libraries(unit_tests PRIVATE
 # Strip Tracy/profiling instrumentation from test targets
 target_compile_options(unit_tests PRIVATE
     -UTRACY_ENABLE -UREXGLUE_ENABLE_PROFILING
-    -UREXGLUE_ENABLE_PERF_COUNTERS
+    -UREXGLUE_ENABLE_PERF_COUNTERS -UREXGLUE_PROFILE_GUEST_FUNCTIONS
 )
 
 set_target_properties(unit_tests PROPERTIES
