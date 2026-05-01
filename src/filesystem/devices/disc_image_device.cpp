@@ -63,7 +63,7 @@ Entry* DiscImageDevice::ResolvePath(const std::string_view path) {
   // The filesystem will have stripped our prefix off already, so the path will
   // be in the form:
   // some\PATH.foo
-  REXFS_INFO("DiscImageDevice::ResolvePath({})", path);
+  REXFS_DEBUG("DiscImageDevice::ResolvePath({})", path);
   return root_entry_->ResolvePath(path);
 }
 
@@ -96,6 +96,11 @@ DiscImageDevice::Error DiscImageDevice::Verify(ParseState* state) {
   if (state->root_size < 13 || state->root_size > 32_MiB) {
     return Error::kErrorDamagedFile;
   }
+
+  disc_info_.game_offset = state->game_offset;
+  disc_info_.root_sector = state->root_sector;
+  disc_info_.root_size = state->root_size;
+  disc_info_.host_size = state->size;
 
   return Error::kSuccess;
 }
@@ -170,6 +175,8 @@ bool DiscImageDevice::ReadEntry(ParseState* state, const uint8_t* buffer, uint16
     // File.
     entry->data_offset_ = state->game_offset + (sector * kXESectorSize);
     entry->data_size_ = length;
+    ++file_count_;
+    total_file_size_ += length;
   }
 
   // Add to parent.

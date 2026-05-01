@@ -16,6 +16,7 @@
 #include <functional>
 #include <memory>
 
+#include <rex/cvar.h>
 #include <rex/filesystem/vfs.h>
 #include <rex/memory.h>
 #include <rex/system/export_resolver.h>
@@ -27,6 +28,11 @@
 
 // Forward declaration for function mapping (defined in rex/ppc/context.h)
 struct PPCFuncMapping;
+
+REXCVAR_DECLARE(std::string, game_data_root);
+REXCVAR_DECLARE(std::string, user_data_root);
+REXCVAR_DECLARE(std::string, update_data_root);
+REXCVAR_DECLARE(std::string, cache_path);
 
 namespace rex {
 

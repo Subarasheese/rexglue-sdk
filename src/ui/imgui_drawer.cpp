@@ -34,8 +34,8 @@ const char kProggyTinyCompressedDataBase85[10950 + 1] =
 
 static_assert(sizeof(ImmediateVertex) == sizeof(ImDrawVert), "Vertex types must match");
 
-ImGuiDrawer::ImGuiDrawer(rex::ui::Window* window, size_t z_order)
-    : window_(window), z_order_(z_order) {
+ImGuiDrawer::ImGuiDrawer(rex::ui::Window* window, size_t z_order, FontSetupCallback font_setup)
+    : window_(window), z_order_(z_order), font_setup_(std::move(font_setup)) {
   Initialize();
 }
 
@@ -133,6 +133,10 @@ void ImGuiDrawer::Initialize() {
     REXLOG_WARN("Unable to load Japanese font; JP characters will be boxes");
   }
 #endif
+
+  if (font_setup_) {
+    font_setup_(io.Fonts);
+  }
 
   auto& style = ImGui::GetStyle();
   style.ScrollbarRounding = 0;
