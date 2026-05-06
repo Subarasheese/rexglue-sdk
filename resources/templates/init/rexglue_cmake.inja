@@ -24,6 +24,13 @@ else()
     endif()
 endif()
 
+# Host target name used by the codegen-emitted dll_targets.cmake to colocate
+# guest DLLs with the host EXE. Defaults to PROJECT_NAME (which the
+# manifest-first init flow sets equal to the host target name).
+if(NOT DEFINED REXGLUE_HOST_TARGET)
+    set(REXGLUE_HOST_TARGET {{ cmake_var("PROJECT_NAME") }})
+endif()
+
 # Include entrypoint generated code if codegen has been run.
 # Falls back to the legacy generated/ root for projects not yet re-codegenned.
 if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/default_xex/sources.cmake")
@@ -48,8 +55,9 @@ macro(rexglue_setup_target target_name)
     )
     target_link_libraries({{ cmake_var("target_name") }} PRIVATE
         rex::core
-        rex::system
-        rex::kernel
+        rex::runtime
+        rex::audio
+        rex::input
         rex::graphics
         rex::ui
     )

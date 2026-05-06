@@ -25,14 +25,13 @@ if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ mod.output_dir }}/sour
     )
     target_link_libraries({{ mod.lib_name }} PRIVATE
         rex::core
-        rex::system
-        rex::kernel
+        rex::runtime
         rex::graphics
         rex::ui
     )
     set_target_properties({{ mod.lib_name }} PROPERTIES
         CXX_VISIBILITY_PRESET hidden
     )
-    rexglue_configure_module_target({{ mod.lib_name }})
+    rexglue_configure_module_target({{ mod.lib_name }} HOST {{ cmake_var("REXGLUE_HOST_TARGET") }})
 endif()
 {% endfor %}
