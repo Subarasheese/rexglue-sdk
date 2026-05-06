@@ -294,8 +294,8 @@ inline bool ParseDouble(std::string_view s, double& out) {
                                   std::to_string(default_val),                               \
                                   false})
 
-#define REXCVAR_DEFINE_INT64(name, default_val, category, desc) \
-  int64_t FLAGS_##name = (default_val);                         \
+#define REXCVAR_DEFINE_INT64(name, default_val, category, desc)                              \
+  int64_t FLAGS_##name = (default_val);                                                      \
   static auto _cvar_reg_##name =                                                             \
       ::rex::cvar::FlagRegistrar({#name,                                                     \
                                   ::rex::cvar::FlagType::Int64,                              \
@@ -311,7 +311,7 @@ inline bool ParseDouble(std::string_view s, double& out) {
                                     return true;                                             \
                                   },                                                         \
                                   []() { return std::to_string(FLAGS_##name); },             \
-                                  []() { return; },                                          \ 
+                                  []() { return; },                                          \
                                   ::rex::cvar::Lifecycle::kHotReload,                        \
                                   {},                                                        \
                                   std::to_string(default_val),                               \

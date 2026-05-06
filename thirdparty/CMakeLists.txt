@@ -78,7 +78,7 @@ target_include_directories(renderdoc INTERFACE
 
 # tomlplusplus - TOML config file parser (header-only)
 add_library(tomlplusplus INTERFACE)
-target_include_directories(tomlplusplus INTERFACE
+target_include_directories(tomlplusplus SYSTEM INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/tomlplusplus/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
@@ -259,6 +259,16 @@ set(SDL_METAL OFF CACHE BOOL "" FORCE)
 set(SDL_DISKAUDIO OFF CACHE BOOL "" FORCE)
 set(SDL_DUMMYAUDIO OFF CACHE BOOL "" FORCE)
 set(SDL_DUMMYVIDEO OFF CACHE BOOL "" FORCE)
+
+# Linux audio backends
+if(UNIX AND NOT APPLE)
+    set(SDL_ALSA              ON  CACHE BOOL "" FORCE)
+    set(SDL_ALSA_SHARED       ON  CACHE BOOL "" FORCE)
+    set(SDL_PULSEAUDIO        ON  CACHE BOOL "" FORCE)
+    set(SDL_PULSEAUDIO_SHARED ON  CACHE BOOL "" FORCE)
+    set(SDL_PIPEWIRE          ON  CACHE BOOL "" FORCE)
+    set(SDL_PIPEWIRE_SHARED   ON  CACHE BOOL "" FORCE)
+endif()
 
 add_subdirectory(sdl3)
 

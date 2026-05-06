@@ -326,8 +326,24 @@ u32 CreateDirectoryA_entry(mapped_string lpPathName, mapped_void lpSecurityAttri
 }
 
 u32 MoveFileA_entry(mapped_string lpExistingFileName, mapped_string lpNewFileName) {
-  REXKRNL_WARN("rexcrt_MoveFileA: STUB '{}' -> '{}'", static_cast<const char*>(lpExistingFileName),
-               static_cast<const char*>(lpNewFileName));
+  const char* src = static_cast<const char*>(lpExistingFileName);
+  const char* dst = static_cast<const char*>(lpNewFileName);
+
+  auto* fs = REX_KERNEL_FS();
+  auto* src_entry = fs->ResolvePath(src);
+  if (!src_entry) {
+    REXKRNL_DEBUG("rexcrt_MoveFileA: source not found '{}'", src);
+    return 0;
+  }
+  // Win32 MoveFileA fails if the destination already exists; callers wanting
+  // overwrite semantics use MoveFileExA with MOVEFILE_REPLACE_EXISTING.
+  if (fs->ResolvePath(dst)) {
+    REXKRNL_DEBUG("rexcrt_MoveFileA: destination exists '{}'", dst);
+    return 0;
+  }
+
+  src_entry->Rename(rex::to_path(dst));
+  REXKRNL_TRACE("rexcrt_MoveFileA: '{}' -> '{}'", src, dst);
   return 1;
 }
 

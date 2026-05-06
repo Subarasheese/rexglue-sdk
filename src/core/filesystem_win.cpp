@@ -208,7 +208,7 @@ std::unique_ptr<FileHandle> FileHandle::OpenExisting(const std::filesystem::path
 
 bool GetInfo(const std::filesystem::path& path, FileInfo* out_info) {
   *out_info = FileInfo{};
-  WIN32_FILE_ATTRIBUTE_DATA data = {0};
+  WIN32_FILE_ATTRIBUTE_DATA data = {};
   if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
     return false;
   }
