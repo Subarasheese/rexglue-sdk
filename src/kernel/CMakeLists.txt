@@ -1,6 +1,5 @@
-# rexkernel: Xbox 360 kernel/XAM export implementations (ported from Xenia)
-# Namespace: rex::kernel
-# System emulation layer has moved to rexsystem (rex::system)
+# rex::kernel is now an alias of rexruntime (defined in src/system/CMakeLists.txt).
+# This file appends kernel sources to that target.
 
 set(REXKERNEL_SOURCES
     kernel_init.cpp
@@ -67,24 +66,9 @@ set(REXKERNEL_SOURCES
     crt/threading.cpp
 )
 
-add_library(rexkernel STATIC ${REXKERNEL_SOURCES})
-add_library(rex::kernel ALIAS rexkernel)
+# Sources are added to rexruntime (created by src/system/CMakeLists.txt) so the
+# kernel hook __imp__* symbols land in the same DLL as the runtime singletons.
+list(TRANSFORM REXKERNEL_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+target_sources(rexruntime PRIVATE ${REXKERNEL_SOURCES})
 
-target_include_directories(rexkernel PUBLIC
-    $<BUILD_INTERFACE:${REXGLUE_ROOT}/include>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-)
-target_include_directories(rexkernel PRIVATE
-    ${REXGLUE_ROOT}/thirdparty
-)
-
-target_link_libraries(rexkernel
-    PUBLIC
-        rexsystem
-    PRIVATE
-        rexgraphics
-        rexinput
-        rexaudio
-        o1heap
-)
-
+target_link_libraries(rexruntime PRIVATE o1heap rexgraphics rexui rexaudio rexinput)

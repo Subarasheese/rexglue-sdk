@@ -119,7 +119,6 @@ target_compile_options(rexgraphics PRIVATE -Wno-unused-variable)
 
 target_link_libraries(rexgraphics PUBLIC
     rexcore
-    rexsystem
     rexui
     xxHash::xxhash
     snappy

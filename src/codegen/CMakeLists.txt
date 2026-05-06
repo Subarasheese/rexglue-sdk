@@ -116,8 +116,7 @@ target_include_directories(rexcodegen
 target_link_libraries(rexcodegen
     PUBLIC
         rexcore
-        rexsystem
-        rexkernel
+        rexruntime
         fmt::fmt
         spdlog::spdlog
     PRIVATE

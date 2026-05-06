@@ -244,6 +244,21 @@ inline bool ParseDouble(std::string_view s, double& out) {
 // Declare a cvar (use in files that need access to a cvar defined elsewhere)
 #define REXCVAR_DECLARE(type, name) extern type FLAGS_##name
 
+// Internal: __declspec(dllimport) on consumers, empty on the producing TU.
+// rexruntime's TUs define REXRUNTIME_BUILD via CMake.
+#if defined(_WIN32) && !defined(REXRUNTIME_BUILD)
+#define REXCVAR_RUNTIME_IMPORT_ __declspec(dllimport)
+#else
+#define REXCVAR_RUNTIME_IMPORT_
+#endif
+
+// Declare a cvar that lives inside the rexruntime SHARED library.
+// Behaves like REXCVAR_DECLARE for intra-module cvars but adds the dllimport
+// annotation needed by lld-link to emit indirect loads on cross-DLL data
+// references. Use this in headers when the matching REXCVAR_DEFINE_* is in a
+// TU compiled into rexruntime; use REXCVAR_DECLARE for cvars in static libs.
+#define REXCVAR_DECLARE_EXTERN(type, name) extern REXCVAR_RUNTIME_IMPORT_ type FLAGS_##name
+
 // Get a cvar value
 #define REXCVAR_GET(name) (FLAGS_##name)
 

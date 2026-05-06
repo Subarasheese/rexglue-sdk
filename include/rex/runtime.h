@@ -31,10 +31,10 @@ struct PPCFuncMapping;
 
 #include <rex/image_info.h>
 
-REXCVAR_DECLARE(std::string, game_data_root);
-REXCVAR_DECLARE(std::string, user_data_root);
-REXCVAR_DECLARE(std::string, update_data_root);
-REXCVAR_DECLARE(std::string, cache_path);
+REXCVAR_DECLARE_EXTERN(std::string, game_data_root);
+REXCVAR_DECLARE_EXTERN(std::string, user_data_root);
+REXCVAR_DECLARE_EXTERN(std::string, update_data_root);
+REXCVAR_DECLARE_EXTERN(std::string, cache_path);
 
 namespace rex {
 
@@ -102,7 +102,7 @@ class Runtime {
   Runtime& operator=(const Runtime&) = delete;
 
   // Global instance accessor - set after Setup() is called
-  static Runtime* instance() { return instance_; }
+  static Runtime* instance();
 
   // Subsystem accessors
   memory::Memory* memory() const { return memory_.get(); }

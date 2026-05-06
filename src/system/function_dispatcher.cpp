@@ -23,51 +23,14 @@
 #include <rex/system/function_dispatcher.h>
 #include <rex/system/thread_state.h>
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#endif
-
 namespace rex::runtime {
 
 namespace {
 
-#ifdef _WIN32
-using GetFunctionDispatcherFn = FunctionDispatcher* (*)();
-
-GetFunctionDispatcherFn ResolveMainModuleAccessor() {
-  HMODULE main_module = ::GetModuleHandleW(nullptr);
-  if (!main_module) {
-    return nullptr;
-  }
-  return reinterpret_cast<GetFunctionDispatcherFn>(
-      ::GetProcAddress(main_module, "rexglue_get_function_dispatcher"));
-}
-
-FunctionDispatcher* GetMainModuleFunctionDispatcher() {
-  // Cached: lookup happens once per loaded module image.
-  static GetFunctionDispatcherFn accessor = ResolveMainModuleAccessor();
-  return accessor ? accessor() : nullptr;
-}
-
-FunctionDispatcher* GetBoundFunctionDispatcher() {
-  Runtime* runtime = Runtime::instance();
-  if (runtime && runtime->function_dispatcher()) {
-    return runtime->function_dispatcher();
-  }
-  return GetMainModuleFunctionDispatcher();
-}
-#else
 FunctionDispatcher* GetBoundFunctionDispatcher() {
   Runtime* runtime = Runtime::instance();
   return runtime ? runtime->function_dispatcher() : nullptr;
 }
-#endif
 
 }  // namespace
 
@@ -75,13 +38,6 @@ static void InvalidFunctionTrap(PPCContext& ctx, uint8_t* /*base*/) {
   REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}",
             ctx.last_indirect_target);
 }
-
-#ifdef _WIN32
-extern "C" __declspec(dllexport) FunctionDispatcher* rexglue_get_function_dispatcher() {
-  Runtime* runtime = Runtime::instance();
-  return runtime ? runtime->function_dispatcher() : nullptr;
-}
-#endif
 
 PPCFunc* ResolveIndirectFunction(uint32_t guest_address) {
   FunctionDispatcher* dispatcher = GetBoundFunctionDispatcher();
@@ -222,7 +178,6 @@ bool FunctionDispatcher::InitializeFunctionTable(uint32_t code_base, uint32_t co
     return false;
   }
 
-  // Reject overlap on both image+table range and code+thunk range.
   uint32_t new_table_end = image_base + image_size + (code_size + kThunkReserveSize) * 2;
   uint32_t new_code_end = code_base + code_size + kThunkReserveSize;
   for (const auto& existing : module_tables_) {
@@ -300,7 +255,6 @@ bool FunctionDispatcher::SetFunction(uint32_t guest_address, ::PPCFunc* func) {
     return false;
   }
 
-  // Record address if in recording mode (for RegisterModule/UnregisterModule)
   if (recording_) {
     recording_addresses_.push_back(guest_address);
   }

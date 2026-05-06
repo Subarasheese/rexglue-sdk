@@ -25,8 +25,7 @@ target_include_directories(unit_tests PRIVATE
 target_link_libraries(unit_tests PRIVATE
     rexcore
     rexcodegen
-    rexkernel
-    rexsystem
+    rexruntime
     Catch2::Catch2WithMain
 )
 
@@ -37,8 +36,14 @@ target_compile_options(unit_tests PRIVATE
 )
 
 set_target_properties(unit_tests PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests/bin
+    RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:rexruntime>
 )
+if(UNIX AND NOT APPLE)
+    set_target_properties(unit_tests PROPERTIES
+        INSTALL_RPATH "$ORIGIN"
+        BUILD_WITH_INSTALL_RPATH ON
+    )
+endif()
 
 # Discover tests
 include(Catch)

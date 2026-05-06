@@ -1,5 +1,7 @@
-# rexsystem: System emulation layer (merged with former rexruntime)
-# Namespace: rex::system, rex::runtime
+# rexruntime: System emulation + kernel exports merged into one SHARED library.
+# Process singletons (Runtime::instance_, thread_state_, current_xthread_tls_)
+# require single-DLL hosting. Aliases preserve consumer compat for namespaced
+# rex:: refs; plain rexsystem/rexkernel direct refs were updated to rexruntime.
 
 set(REXSYSTEM_SOURCES
     runtime.cpp
@@ -49,18 +51,31 @@ set(REXSYSTEM_SOURCES
     xex_module.cpp
 )
 
-add_library(rexsystem STATIC ${REXSYSTEM_SOURCES})
-add_library(rex::system ALIAS rexsystem)
+add_library(rexruntime SHARED ${REXSYSTEM_SOURCES})
+add_library(rex::runtime ALIAS rexruntime)
+add_library(rex::system ALIAS rexruntime)
+add_library(rex::kernel ALIAS rexruntime)
 
-target_include_directories(rexsystem PUBLIC
+# Auto-export every function symbol on MSVC, including hundreds of __imp__*
+# kernel hooks defined in src/kernel/. Linux uses default symbol visibility,
+# which already exports everything.
+set_target_properties(rexruntime PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+
+# Producer-side define for REXCVAR_DECLARE_EXTERN in rex/cvar.h: compiling into
+# rexruntime emits no dllimport on these cvar declarations; every other TU that
+# includes the header gets __declspec(dllimport) so lld-link emits indirect
+# loads through the import table for cross-DLL data references.
+target_compile_definitions(rexruntime PRIVATE REXRUNTIME_BUILD)
+
+target_include_directories(rexruntime PUBLIC
     $<BUILD_INTERFACE:${REXGLUE_ROOT}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_include_directories(rexsystem PRIVATE
+target_include_directories(rexruntime PRIVATE
     ${REXGLUE_ROOT}/thirdparty
 )
 
-target_link_libraries(rexsystem
+target_link_libraries(rexruntime
     PUBLIC
         rexcore
         rexfilesystem
@@ -71,13 +86,13 @@ target_link_libraries(rexsystem
 )
 
 if(WIN32)
-    target_link_libraries(rexsystem PRIVATE ws2_32)
+    target_link_libraries(rexruntime PRIVATE ws2_32)
 endif()
 
 # Propagate graphics backend selection
 if(REXGLUE_USE_D3D12)
-    target_compile_definitions(rexsystem PUBLIC REX_HAS_D3D12=1)
+    target_compile_definitions(rexruntime PUBLIC REX_HAS_D3D12=1)
 endif()
 if(REXGLUE_USE_VULKAN)
-    target_compile_definitions(rexsystem PUBLIC REX_HAS_VULKAN=1)
+    target_compile_definitions(rexruntime PUBLIC REX_HAS_VULKAN=1)
 endif()

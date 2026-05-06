@@ -38,6 +38,10 @@ namespace rex {
 // Static instance for global access
 Runtime* Runtime::instance_ = nullptr;
 
+Runtime* Runtime::instance() {
+  return instance_;
+}
+
 Runtime::Runtime(const std::filesystem::path& game_data_root,
                  const std::filesystem::path& user_data_root,
                  const std::filesystem::path& update_data_root,
@@ -52,6 +56,15 @@ Runtime::~Runtime() {
 }
 
 X_STATUS Runtime::Setup(RuntimeConfig config) {
+  // Guard against double-Setup. Publish instance_ now so any subsystem that
+  // spawns worker threads during init (audio, dispatch_thread, etc.) sees a
+  // valid Runtime via Runtime::instance().
+  if (instance_ != nullptr) {
+    REXSYS_ERROR("Runtime::Setup() called but global instance already exists");
+    return X_STATUS_UNSUCCESSFUL;
+  }
+  instance_ = this;
+
   // Start profiler (Tracy network threads, counter init)
   rex::perf::Profiler::Startup();
 
@@ -66,12 +79,6 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
   // Enable threading affinity configuration
   thread::EnableAffinityConfiguration();
 
-  // Guard against reinitialization
-  if (memory_) {
-    REXSYS_ERROR("Runtime::Setup() called but already initialized");
-    return X_STATUS_UNSUCCESSFUL;
-  }
-
   tool_mode_ = config.tool_mode;
 
   // Create memory system first
@@ -79,6 +86,7 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
   if (!memory_->Initialize()) {
     REXSYS_ERROR("Failed to initialize memory system");
     memory_.reset();
+    instance_ = nullptr;
     return X_STATUS_UNSUCCESSFUL;
   }
 
@@ -132,6 +140,7 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
   // Set up VFS: game_data_root as game:/d:, update_data_root as update:
   if (!SetupVfs()) {
     REXSYS_ERROR("Failed to set up VFS");
+    instance_ = nullptr;
     return X_STATUS_UNSUCCESSFUL;
   }
 
@@ -151,6 +160,7 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
     if (XFAILED(gpu_status)) {
       REXSYS_ERROR("Failed to initialize GPU - required for runtime");
       graphics_system_.reset();
+      instance_ = nullptr;
       return gpu_status;
     }
     REXSYS_INFO("GPU system initialized (presentation={})", with_presentation);
@@ -164,11 +174,6 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
 }
 
 X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig config) {
-  if (instance_ != nullptr) {
-    REXSYS_ERROR("Runtime::Setup() called but global instance already exists");
-    return X_STATUS_UNSUCCESSFUL;
-  }
-
   X_STATUS status = Setup(std::move(config));
   if (status != X_STATUS_SUCCESS) {
     return status;
@@ -179,6 +184,7 @@ X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig confi
                                                      image_info.image_base, image_info.image_size,
                                                      /*is_entrypoint=*/true)) {
     REXSYS_ERROR("Failed to initialize function table");
+    Shutdown();
     return X_STATUS_UNSUCCESSFUL;
   }
 
@@ -200,8 +206,6 @@ X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig confi
     }
     REXSYS_DEBUG("Registered {} recompiled functions ({} duplicates ignored)", count, duplicates);
   }
-
-  instance_ = this;
 
   REXSYS_DEBUG("Runtime setup complete (code: {:08X}-{:08X}, image: {:08X}-{:08X})",
                image_info.code_base, image_info.code_base + image_info.code_size,
