@@ -24,20 +24,27 @@ else()
     endif()
 endif()
 
-# Include generated code if codegen has been run
-if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/sources.cmake")
+# Include entrypoint generated code if codegen has been run.
+# Falls back to the legacy generated/ root for projects not yet re-codegenned.
+if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/default_xex/sources.cmake")
+    include(generated/default_xex/sources.cmake)
+    set(REXGLUE_ENTRYPOINT_GENERATED_SOURCES {{ cmake_var("GENERATED_SOURCES") }})
+    set(REXGLUE_ENTRYPOINT_INCLUDE_DIR "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/default_xex")
+elseif(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/sources.cmake")
     include(generated/sources.cmake)
+    set(REXGLUE_ENTRYPOINT_GENERATED_SOURCES {{ cmake_var("GENERATED_SOURCES") }})
+    set(REXGLUE_ENTRYPOINT_INCLUDE_DIR "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated")
 endif()
 
 # Configure a rexglue target with SDK libraries and platform settings.
 # Call after add_executable() in your CMakeLists.txt.
 # Usage: rexglue_setup_target(<target>)
 macro(rexglue_setup_target target_name)
-    target_sources({{ cmake_var("target_name") }} PRIVATE {{ cmake_var("GENERATED_SOURCES") }})
+    target_sources({{ cmake_var("target_name") }} PRIVATE {{ cmake_var("REXGLUE_ENTRYPOINT_GENERATED_SOURCES") }})
     target_include_directories({{ cmake_var("target_name") }} PRIVATE
         {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}
         {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/src
-        {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated
+        {{ cmake_var("REXGLUE_ENTRYPOINT_INCLUDE_DIR") }}
     )
     target_link_libraries({{ cmake_var("target_name") }} PRIVATE
         rex::core
@@ -49,9 +56,15 @@ macro(rexglue_setup_target target_name)
     rexglue_configure_target({{ cmake_var("target_name") }})
 endmacro()
 
+# Include DLL module shared library targets if codegen has generated them
+if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/default_xex/dll_targets.cmake")
+    include(generated/default_xex/dll_targets.cmake)
+endif()
+
 # Codegen target - run 'cmake --build . --target {{ names.snake_case }}_codegen'
+# Uses the manifest to drive codegen for all modules (entrypoint + DLLs).
 add_custom_target({{ names.snake_case }}_codegen
-    COMMAND $<TARGET_FILE:rex::rexglue> codegen {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ names.snake_case }}_config.toml
+    COMMAND $<TARGET_FILE:rex::rexglue> codegen {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ names.snake_case }}_manifest.toml
     WORKING_DIRECTORY {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}
     COMMENT "Generating recompiled code for {{ names.snake_case }}"
     VERBATIM

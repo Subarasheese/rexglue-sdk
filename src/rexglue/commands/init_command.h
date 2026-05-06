@@ -42,4 +42,18 @@ struct InitOptions {
  */
 Result<void> InitProject(const InitOptions& opts, const CliContext& ctx);
 
+struct InitModuleOptions {
+  std::string app_root;    // Project root (must contain a manifest)
+  std::string xex_path;    // Path to DLL XEX file
+  std::string guest_path;  // Guest path for XexLoadImage matching
+};
+
+/**
+ * Add a DLL module to an existing multi-binary project
+ * @param opts Init module options
+ * @param ctx CLI context
+ * @return Success or error
+ */
+Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx);
+
 }  // namespace rexglue::cli

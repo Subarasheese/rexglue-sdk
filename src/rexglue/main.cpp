@@ -15,6 +15,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <sstream>
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -24,6 +25,8 @@
 // Codegen flags (definitions in codegen_flags.cpp)
 REXCVAR_DECLARE(bool, force);
 REXCVAR_DECLARE(bool, enable_exception_handlers);
+REXCVAR_DEFINE_STRING(target, "", "Codegen",
+                      "Comma-separated target modules for multi-binary codegen");
 
 // Recompile-tests flags
 REXCVAR_DEFINE_STRING(bin_dir, "", "RecompileTests",
@@ -40,6 +43,10 @@ REXCVAR_DEFINE_STRING(app_author, "", "Init", "Project author (optional)");
 REXCVAR_DEFINE_BOOL(sdk_example, false, "Init", "Create as SDK example (omit vcpkg.json)");
 REXCVAR_DEFINE_STRING(template_dir, "", "Init", "Custom template directory for overrides");
 
+// Init module flags
+REXCVAR_DEFINE_STRING(xex_path, "", "InitModule", "Path to DLL XEX file");
+REXCVAR_DEFINE_STRING(guest_path, "", "InitModule", "Guest path for XexLoadImage matching");
+
 using rex::Ok;
 using rex::Result;
 
@@ -55,19 +62,32 @@ void PrintUsage() {
   std::cerr << "  init                    Initialize a new project\n";
   std::cerr << "  migrate                 Migrate project to current SDK version\n";
   std::cerr << "  recompile-tests         Generate Catch2 tests from PPC assembly\n\n";
+  std::cerr << "Codegen flags:\n";
+  std::cerr
+      << "  --target=a,b            Build specific DLL modules (entrypoint always included)\n\n";
   std::cerr << "Run 'rexglue --help' for flag details.\n";
 }
 
 int main(int argc, char** argv) {
+  // Extract positional (non-flag) args from argv directly for command routing.
+  // CLI11's remaining() behavior for positional args that appear before --flags
+  // is version-dependent; bare words like "module" can be silently dropped.
+  std::string command;
+  std::string subcommand;
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i][0] != '-') {
+      if (command.empty())
+        command = argv[i];
+      else if (subcommand.empty())
+        subcommand = argv[i];
+      else
+        break;
+    }
+  }
+
   auto remaining = rex::cvar::Init(argc, argv);
   rex::cvar::ApplyEnvironment();
   rex::InitLoggingEarly();
-
-  std::string command;
-
-  if (!remaining.empty()) {
-    command = remaining[0];
-  }
 
   if (command.empty()) {
     PrintUsage();
@@ -102,10 +122,33 @@ int main(int argc, char** argv) {
   ctx.force = REXCVAR_GET(force);
   ctx.enableExceptionHandlers = REXCVAR_GET(enable_exception_handlers);
 
+  // Parse --target comma-separated list
+  std::string target_str = REXCVAR_GET(target);
+  if (!target_str.empty()) {
+    std::istringstream ss(target_str);
+    std::string tok;
+    while (std::getline(ss, tok, ',')) {
+      if (!tok.empty())
+        ctx.targets.push_back(tok);
+    }
+  }
+
   auto startTime = std::chrono::steady_clock::now();
 
   Result<void> result = Ok();
-  if (command == "init") {
+  if (command == "init" && subcommand == "module") {
+    rexglue::cli::InitModuleOptions opts;
+    opts.app_root = REXCVAR_GET(app_root);
+    opts.xex_path = REXCVAR_GET(xex_path);
+    opts.guest_path = REXCVAR_GET(guest_path);
+
+    if (opts.app_root.empty() || opts.xex_path.empty() || opts.guest_path.empty()) {
+      REXLOG_ERROR("--app_root, --xex_path, and --guest_path are required for init module");
+      return 1;
+    }
+
+    result = rexglue::cli::InitModule(opts, ctx);
+  } else if (command == "init") {
     rexglue::cli::InitOptions opts;
     opts.app_name = REXCVAR_GET(app_name);
     opts.app_root = REXCVAR_GET(app_root);
