@@ -19,6 +19,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include <toml++/toml.hpp>
+
 #include <rex/codegen/function_graph.h>  // For JumpTable
 
 namespace rex::codegen {
@@ -131,6 +133,13 @@ struct RecompilerConfig {
    *         include, depth exceeded)
    */
   bool Load(const std::string_view& configFilePath);
+
+  /**
+   * Load configuration from an in-memory TOML table (e.g. an inline binary
+   * entry inside a manifest). Includes referenced from the table resolve
+   * relative to `base_dir`. Same merge semantics as Load().
+   */
+  bool LoadFromTable(const toml::table& tbl, const std::filesystem::path& base_dir);
 
   /// Validation result containing warnings and errors.
   struct ValidationResult {

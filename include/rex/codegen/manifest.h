@@ -17,11 +17,18 @@
 #include <string_view>
 #include <vector>
 
+#include <rex/codegen/config.h>
+
 namespace rex::codegen {
 
-struct ManifestModuleEntry {
-  std::filesystem::path config;  ///< Absolute path to per-binary config TOML
-  std::string guestPath;         ///< Canonicalized guest path; populated by Load
+/**
+ * Codegen settings for a single binary inside a manifest. The entrypoint
+ * uses an empty `guestPath`; module entries set it to the canonicalized
+ * guest-visible path the host runtime resolves against.
+ */
+struct BinaryConfig {
+  RecompilerConfig recompiler;
+  std::string guestPath;
 };
 
 /**
@@ -35,10 +42,10 @@ std::string CanonicalizeModuleGuestPath(std::string_view path, std::string_view 
  */
 struct ManifestConfig {
   std::string projectName;
-  std::optional<std::string> sdkVersion;   ///< Last SDK that ran codegen on this project
-  std::filesystem::path entrypointConfig;  ///< Absolute path to entrypoint config
-  std::vector<ManifestModuleEntry> modules;
-  std::filesystem::path manifestDir;  ///< Directory containing the manifest
+  std::optional<std::string> sdkVersion;  ///< Last SDK that ran codegen on this project
+  std::filesystem::path manifestDir;      ///< Directory containing the manifest
+  BinaryConfig entrypoint;                ///< Entrypoint codegen settings (inline)
+  std::vector<BinaryConfig> modules;      ///< DLL module codegen settings (inline)
 
   /**
    * Load a manifest TOML file. Returns nullopt on parse failure.
@@ -46,13 +53,12 @@ struct ManifestConfig {
   static std::optional<ManifestConfig> Load(const std::filesystem::path& path);
 
   /**
-   * Detect whether a TOML file is a manifest (has [entrypoint] key) vs a
-   * legacy single-binary config.
+   * True when `path` parses as a manifest (i.e. has a `[project]` section).
    */
   static bool IsManifest(const std::filesystem::path& path);
 
   /**
-   * Insert or overwrite [project].sdkVersion in the manifest file at `path`.
+   * Insert or overwrite [project].sdk_version in the manifest file at `path`.
    * Preserves the rest of the file's content. Returns false on parse or write
    * failure.
    */

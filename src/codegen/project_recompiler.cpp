@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <unordered_map>
 
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
@@ -36,11 +37,12 @@ namespace rex::codegen {
 
 namespace {
 
-std::string DeriveTargetName(const std::filesystem::path& configPath) {
-  auto stem = configPath.stem().string();
-  std::replace(stem.begin(), stem.end(), '.', '_');
-  std::replace(stem.begin(), stem.end(), ' ', '_');
-  return stem;
+std::string DeriveTargetNameFromFilePath(const std::string& file_path) {
+  std::filesystem::path p(file_path);
+  std::string name = p.stem().string();
+  std::replace(name.begin(), name.end(), '.', '_');
+  std::replace(name.begin(), name.end(), ' ', '_');
+  return name;
 }
 
 }  // namespace
@@ -60,9 +62,8 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
                 manifest_.modules.size(), manifest_.modules.size() == 1 ? "" : "s");
   }
 
-  // Collect all module entries
+  // Collect all module entries (one for the entrypoint + one per [[modules]]).
   struct ModuleEntry {
-    fs::path configPath;
     std::string targetName;
     std::string guestPath;
     bool isDll;
@@ -70,9 +71,11 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
   };
 
   std::vector<ModuleEntry> allModules;
-  allModules.push_back({manifest_.entrypointConfig, "default_xex", "", false, {}});
-  for (const auto& mod : manifest_.modules) {
-    allModules.push_back({mod.config, DeriveTargetName(mod.config), mod.guestPath, true, {}});
+  allModules.push_back({DeriveTargetNameFromFilePath(manifest_.entrypoint.recompiler.filePath), "",
+                        false, std::move(manifest_.entrypoint.recompiler)});
+  for (auto& mod : manifest_.modules) {
+    allModules.push_back({DeriveTargetNameFromFilePath(mod.recompiler.filePath), mod.guestPath,
+                          true, std::move(mod.recompiler)});
   }
 
   if (!opts.targets.empty()) {
@@ -113,11 +116,21 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
     }
   }
 
-  // Load each targeted config exactly once; moved into CodegenContext below.
-  for (auto& m : targeted) {
-    if (!m.config.Load(m.configPath.string())) {
-      return Err<void>(ErrorCategory::Config,
-                       fmt::format("Failed to load config: {}", m.configPath.string()));
+  // Two binaries sharing an out_directory_path would clobber each other's
+  // sources.cmake on emit (the writer's cleanup sweep is unprefixed for
+  // that file).
+  std::unordered_map<std::string, std::string> outDirOwner;
+  for (const auto& m : targeted) {
+    const auto& outDir = m.config.outDirectoryPath;
+    if (outDir.empty())
+      continue;
+    auto [it, inserted] = outDirOwner.emplace(outDir, m.targetName);
+    if (!inserted) {
+      return Err<void>(
+          ErrorCategory::Validation,
+          fmt::format("out_directory_path '{}' is shared by '{}' and '{}'; each binary "
+                      "needs its own output directory",
+                      outDir, it->second, m.targetName));
     }
   }
 
@@ -125,7 +138,7 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
 
   // Resolve entrypoint XEX path (needed to set up the Runtime content root)
   const auto& entryConfig = targeted[0].config;
-  auto configDir = targeted[0].configPath.parent_path();
+  auto configDir = manifest_.manifestDir;
   fs::path entryXexPath = configDir / entryConfig.filePath;
   if (!entryConfig.patchedFilePath.empty()) {
     auto patched = configDir / entryConfig.patchedFilePath;
@@ -234,7 +247,7 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
 
     auto ctx = CodegenContext::Create(std::move(bv), std::move(cfg));
     ctx.setResolver(resolver);
-    ctx.setConfigDir(targeted[0].configPath.parent_path());
+    ctx.setConfigDir(configDir);
     ctx.analysisState().format = "xex";
     ctx.analysisState().loadAddress = ctx.binary().baseAddress();
     ctx.analysisState().entryPoint = ctx.binary().entryPoint();
@@ -257,7 +270,7 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
 
     auto ctx = CodegenContext::Create(std::move(bv), std::move(cfg));
     ctx.setResolver(resolver);
-    ctx.setConfigDir(targeted[i + 1].configPath.parent_path());
+    ctx.setConfigDir(configDir);
     ctx.analysisState().format = "xex";
     ctx.analysisState().loadAddress = ctx.binary().baseAddress();
     ctx.analysisState().entryPoint = ctx.binary().entryPoint();

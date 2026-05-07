@@ -1,6 +1,6 @@
 // {{ names.snake_case }} - ReXGlue Recompiled Project
 
-#include "generated/default_xex/{{ names.snake_case }}_init.h"
+#include "{{ entrypoint_out_dir }}/{{ names.snake_case }}_init.h"
 
 #include "{{ names.snake_case }}_app.h"
 

@@ -54,11 +54,11 @@ set(TEMPLATE_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/templates")
 
 set(INJA_TEMPLATE_FILES
     ${TEMPLATE_SOURCE_DIR}/init/app_header.inja
-    ${TEMPLATE_SOURCE_DIR}/init/config_toml.inja
     ${TEMPLATE_SOURCE_DIR}/init/main_cpp.inja
     ${TEMPLATE_SOURCE_DIR}/init/cmakelists.inja
     ${TEMPLATE_SOURCE_DIR}/init/cmake_presets.inja
     ${TEMPLATE_SOURCE_DIR}/init/rexglue_cmake.inja
+    ${TEMPLATE_SOURCE_DIR}/init/manifest_toml.inja
     ${TEMPLATE_SOURCE_DIR}/codegen/_indirect_call.inja
     ${TEMPLATE_SOURCE_DIR}/codegen/init_cpp.inja
     ${TEMPLATE_SOURCE_DIR}/codegen/init_h.inja

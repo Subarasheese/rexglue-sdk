@@ -45,6 +45,9 @@ Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
   if (opts.app_root.empty()) {
     return Err<void>(ErrorCategory::Config, "--app_root is required");
   }
+  if (opts.xex_path.empty()) {
+    return Err<void>(ErrorCategory::Config, "--xex_path is required (path to entrypoint XEX)");
+  }
 
   // Validate and parse app name
   std::string validation_error;
@@ -53,13 +56,21 @@ Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
   }
   auto names = parse_app_name(opts.app_name);
 
+  fs::path xexRel(opts.xex_path);
+  std::string xexPathStr = xexRel.generic_string();
+  std::string xexStem = xexRel.stem().string();
+  if (xexStem.empty()) {
+    return Err<void>(ErrorCategory::Config, "--xex_path has no filename: " + opts.xex_path);
+  }
+  std::string outDir = "generated/" + xexStem;
+
   rex::codegen::TemplateRegistry registry;
   if (!opts.template_dir.empty())
     registry.loadOverrides(opts.template_dir);
 
-  nlohmann::json data = {{"names", names_to_json(names)},
-                         {"sdk_version", REXGLUE_VERSION_NUMERIC},
-                         {"include_stamp", true}};
+  nlohmann::json data = {{"names", names_to_json(names)}, {"sdk_version", REXGLUE_VERSION_NUMERIC},
+                         {"include_stamp", true},         {"xex_path", xexPathStr},
+                         {"out_directory_path", outDir},  {"entrypoint_out_dir", outDir}};
   std::string jsonStr = data.dump();
 
   fs::path root = fs::absolute(opts.app_root);
@@ -133,13 +144,6 @@ Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
   }
   REXLOG_DEBUG("  Created src/{}", app_header_filename);
 
-  std::string config_filename = names.snake_case + "_default_xex.toml";
-  if (!write_file(root / config_filename, registry.render("init/config_toml", jsonStr))) {
-    return Err<void>(ErrorCategory::IO, "Failed to write " + config_filename);
-  }
-  REXLOG_DEBUG("  Created {}", config_filename);
-
-  // Generate manifest TOML (project-level entry point, references per-binary configs)
   std::string manifest_filename = names.snake_case + "_manifest.toml";
   if (!write_file(root / manifest_filename, registry.render("init/manifest_toml", jsonStr))) {
     return Err<void>(ErrorCategory::IO, "Failed to write " + manifest_filename);
@@ -159,8 +163,8 @@ Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
 
 Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
   namespace fs = std::filesystem;
+  (void)ctx;
 
-  // Find manifest in project root
   fs::path root = fs::absolute(opts.app_root);
   std::error_code dir_ec;
   fs::path manifestPath;
@@ -185,25 +189,13 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
     return Err<void>(rex::ErrorCategory::Config, "Failed to load manifest");
   }
 
-  // Derive module name from XEX filename (dots/spaces -> underscores)
   fs::path xexFile(opts.xex_path);
   std::string moduleName = xexFile.stem().string();
   std::replace(moduleName.begin(), moduleName.end(), '.', '_');
   std::replace(moduleName.begin(), moduleName.end(), ' ', '_');
-  // Lowercase the module name for consistency
   std::transform(moduleName.begin(), moduleName.end(), moduleName.begin(),
                  [](unsigned char c) { return std::tolower(c); });
 
-  std::string configName = manifest->projectName + "_" + moduleName + ".toml";
-  fs::path configPath = manifestPath.parent_path() / configName;
-
-  if (fs::exists(configPath) && !ctx.overwrite_existing) {
-    return Err<void>(
-        rex::ErrorCategory::Config,
-        fmt::format("Config already exists: {}. Use --force to overwrite.", configPath.string()));
-  }
-
-  // Validate xex_path exists
   fs::path absoluteXexPath = fs::weakly_canonical(fs::absolute(opts.xex_path));
   if (!fs::exists(absoluteXexPath)) {
     return Err<void>(rex::ErrorCategory::IO,
@@ -211,36 +203,11 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
                                  absoluteXexPath.string(), opts.xex_path));
   }
 
-  // Generate per-module config from template
-  rex::codegen::TemplateRegistry registry;
-  std::string manifestFilename = manifestPath.filename().string();
-
-  auto names = parse_app_name(manifest->projectName);
-
-  // xex_path: project-relative for codegen joins.
   fs::path relXexPath = fs::relative(absoluteXexPath, root);
-  std::string xexPath = relXexPath.generic_string();  // forward slashes
+  std::string xexPath = relXexPath.generic_string();
 
-  // guest_path: canonicalize to the guest-visible module path used at runtime.
   std::string guestPath =
       rex::codegen::CanonicalizeModuleGuestPath(opts.guest_path, manifest->projectName);
-
-  nlohmann::json data = {
-      {"names", names_to_json(names)},
-      {"module_name", moduleName},
-      {"xex_path", xexPath},
-      {"guest_path", guestPath},
-      {"manifest_filename", manifestFilename},
-  };
-  std::string jsonStr = data.dump();
-
-  if (!write_file(configPath, registry.render("init/module_config_toml", jsonStr))) {
-    return Err<void>(rex::ErrorCategory::IO, "Failed to write " + configName);
-  }
-  REXLOG_DEBUG("  Created {}", configName);
-
-  // Create generated output directory for this module
-  fs::create_directories(root / "generated" / moduleName);
 
   toml::table manifestTbl;
   try {
@@ -256,58 +223,53 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
     modulesArr = manifestTbl["modules"].as_array();
   }
 
-  bool already_present = false;
   for (const auto& mod : *modulesArr) {
     auto* modTbl = mod.as_table();
-    if (!modTbl) {
+    if (!modTbl)
       continue;
-    }
-    auto existing_config = (*modTbl)["config"].value_or<std::string>("");
-    auto existing_guest = (*modTbl)["guestPath"].value_or<std::string>("");
-    if (existing_config == configName || existing_guest == guestPath) {
-      already_present = true;
-      break;
+    auto existing_file = (*modTbl)["file_path"].value_or<std::string>("");
+    auto existing_guest = (*modTbl)["guest_path"].value_or<std::string>("");
+    if (existing_file == xexPath || existing_guest == guestPath) {
+      REXLOG_INFO("Manifest already lists this module; nothing to do.");
+      return Ok();
     }
   }
 
-  if (!already_present) {
-    toml::table newEntry;
-    newEntry.insert_or_assign("config", configName);
-    newEntry.insert_or_assign("guestPath", guestPath);
-    modulesArr->push_back(std::move(newEntry));
+  toml::table newEntry;
+  newEntry.insert_or_assign("guest_path", guestPath);
+  newEntry.insert_or_assign("file_path", xexPath);
+  newEntry.insert_or_assign("out_directory_path", "generated/" + moduleName);
+  newEntry.insert_or_assign("includes", toml::array{});
+  modulesArr->push_back(std::move(newEntry));
 
-    auto tmpPath = manifestPath;
-    tmpPath += ".tmp";
-    {
-      std::ofstream out(tmpPath);
-      if (!out) {
-        return Err<void>(rex::ErrorCategory::IO,
-                         "Failed to open manifest tmp for writing: " + tmpPath.string());
-      }
-      out << manifestTbl;
-      if (!out.good()) {
-        std::error_code ignore;
-        fs::remove(tmpPath, ignore);
-        return Err<void>(rex::ErrorCategory::IO,
-                         "Failed while writing manifest tmp: " + tmpPath.string());
-      }
+  auto tmpPath = manifestPath;
+  tmpPath += ".tmp";
+  {
+    std::ofstream out(tmpPath);
+    if (!out) {
+      return Err<void>(rex::ErrorCategory::IO,
+                       "Failed to open manifest tmp for writing: " + tmpPath.string());
     }
-    std::error_code ec;
-    fs::rename(tmpPath, manifestPath, ec);
-    if (ec) {
+    out << manifestTbl;
+    if (!out.good()) {
       std::error_code ignore;
       fs::remove(tmpPath, ignore);
       return Err<void>(rex::ErrorCategory::IO,
-                       "Failed to rename manifest tmp into place: " + ec.message());
+                       "Failed while writing manifest tmp: " + tmpPath.string());
     }
-  } else {
-    REXLOG_INFO("  Manifest already lists this module; skipping append");
+  }
+  std::error_code ec;
+  fs::rename(tmpPath, manifestPath, ec);
+  if (ec) {
+    std::error_code ignore;
+    fs::remove(tmpPath, ignore);
+    return Err<void>(rex::ErrorCategory::IO,
+                     "Failed to rename manifest tmp into place: " + ec.message());
   }
 
-  REXLOG_INFO("Module '{}' added to project", moduleName);
-  REXLOG_INFO("  Config:     {}", configName);
-  REXLOG_INFO("  Guest path: {}", guestPath);
-  REXLOG_INFO("  Output dir: generated/{}", moduleName);
+  REXLOG_INFO("Module '{}' added to manifest", moduleName);
+  REXLOG_INFO("  file_path:  {}", xexPath);
+  REXLOG_INFO("  guest_path: {}", guestPath);
 
   return Ok();
 }

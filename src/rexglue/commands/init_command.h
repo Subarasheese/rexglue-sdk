@@ -27,6 +27,7 @@ using rex::Result;
 struct InitOptions {
   std::string app_name;      // Project name (required)
   std::string app_root;      // Project root directory (required)
+  std::string xex_path;      // Path to entrypoint XEX (required)
   std::string app_desc;      // Optional project description
   std::string app_author;    // Optional author name
   std::string template_dir;  ///< Optional custom template directory

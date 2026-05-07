@@ -31,15 +31,10 @@ if(NOT DEFINED REXGLUE_HOST_TARGET)
 endif()
 
 # Include entrypoint generated code if codegen has been run.
-# Falls back to the legacy generated/ root for projects not yet re-codegenned.
-if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/default_xex/sources.cmake")
-    include(generated/default_xex/sources.cmake)
+if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/sources.cmake")
+    include({{ entrypoint_out_dir }}/sources.cmake)
     set(REXGLUE_ENTRYPOINT_GENERATED_SOURCES {{ cmake_var("GENERATED_SOURCES") }})
-    set(REXGLUE_ENTRYPOINT_INCLUDE_DIR "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/default_xex")
-elseif(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/sources.cmake")
-    include(generated/sources.cmake)
-    set(REXGLUE_ENTRYPOINT_GENERATED_SOURCES {{ cmake_var("GENERATED_SOURCES") }})
-    set(REXGLUE_ENTRYPOINT_INCLUDE_DIR "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated")
+    set(REXGLUE_ENTRYPOINT_INCLUDE_DIR "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}")
 endif()
 
 # Configure a rexglue target with SDK libraries and platform settings.
@@ -57,8 +52,8 @@ macro(rexglue_setup_target target_name)
 endmacro()
 
 # Include DLL module shared library targets if codegen has generated them
-if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/default_xex/dll_targets.cmake")
-    include(generated/default_xex/dll_targets.cmake)
+if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ entrypoint_out_dir }}/dll_targets.cmake")
+    include({{ entrypoint_out_dir }}/dll_targets.cmake)
 endif()
 
 # Codegen target - run 'cmake --build . --target {{ names.snake_case }}_codegen'
