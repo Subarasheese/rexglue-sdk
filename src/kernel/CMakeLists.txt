@@ -1,6 +1,3 @@
-# rex::kernel is now an alias of rexruntime (defined in src/system/CMakeLists.txt).
-# This file appends kernel sources to that target.
-
 set(REXKERNEL_SOURCES
     kernel_init.cpp
 
@@ -66,9 +63,7 @@ set(REXKERNEL_SOURCES
     crt/threading.cpp
 )
 
-# Sources are added to rexruntime (created by src/system/CMakeLists.txt) so the
-# kernel hook __imp__* symbols land in the same DLL as the runtime singletons.
 list(TRANSFORM REXKERNEL_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 target_sources(rexruntime PRIVATE ${REXKERNEL_SOURCES})
 
-target_link_libraries(rexruntime PRIVATE o1heap rexgraphics rexui rexaudio rexinput)
+target_link_libraries(rexruntime PRIVATE o1heap rexcore rexfilesystem rexgraphics rexui rexaudio rexinput imgui)

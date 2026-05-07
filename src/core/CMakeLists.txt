@@ -1,7 +1,7 @@
 # rexcore - Core utilities library
 # Foundation types, data structures, and threading primitives
 
-add_library(rexcore STATIC
+add_library(rexcore OBJECT
     arena.cpp
     bit_map.cpp
     bit_stream.cpp

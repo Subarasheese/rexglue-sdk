@@ -203,7 +203,7 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
       input_sys->SetActiveCallback([this]() {
         if (!debug_overlay_ && !console_overlay_ && !settings_overlay_)
           return true;
-        return !ImGui::GetIO().WantCaptureMouse;
+        return !imgui_drawer_->GetIO().WantCaptureMouse;
       });
     }
   }

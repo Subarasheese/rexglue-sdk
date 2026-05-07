@@ -23,12 +23,7 @@ if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ mod.output_dir }}/sour
         {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}
         {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/{{ mod.output_dir }}
     )
-    target_link_libraries({{ mod.lib_name }} PRIVATE
-        rex::core
-        rex::runtime
-        rex::graphics
-        rex::ui
-    )
+    target_link_libraries({{ mod.lib_name }} PRIVATE rex::runtime)
     set_target_properties({{ mod.lib_name }} PROPERTIES
         CXX_VISIBILITY_PRESET hidden
     )

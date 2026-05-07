@@ -50,19 +50,19 @@
 
 // Stub: logs a warning when called.
 #define REX_STUB(subroutine)              \
-  extern "C" REX_WEAK_FUNC(subroutine) {  \
+  extern "C" REX_FUNC(subroutine) {       \
     (void)base;                           \
     REXKRNL_WARN("{} STUB", #subroutine); \
   }
 
 #define REX_STUB_LOG(subroutine, msg)               \
-  extern "C" REX_WEAK_FUNC(subroutine) {            \
+  extern "C" REX_FUNC(subroutine) {                 \
     (void)base;                                     \
     REXKRNL_WARN("{} STUB - {}", #subroutine, msg); \
   }
 
 #define REX_STUB_RETURN(subroutine, value)                                                \
-  extern "C" REX_WEAK_FUNC(subroutine) {                                                  \
+  extern "C" REX_FUNC(subroutine) {                                                       \
     (void)base;                                                                           \
     REXKRNL_WARN("{} STUB - returning {:#x}", #subroutine, static_cast<uint32_t>(value)); \
     ctx.r3.u64 = (value);                                                                 \

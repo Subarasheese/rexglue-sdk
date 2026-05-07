@@ -52,14 +52,7 @@ macro(rexglue_setup_target target_name)
         {{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/src
         {{ cmake_var("REXGLUE_ENTRYPOINT_INCLUDE_DIR") }}
     )
-    target_link_libraries({{ cmake_var("target_name") }} PRIVATE
-        rex::core
-        rex::runtime
-        rex::audio
-        rex::input
-        rex::graphics
-        rex::ui
-    )
+    target_link_libraries({{ cmake_var("target_name") }} PRIVATE rex::runtime)
     rexglue_configure_target({{ cmake_var("target_name") }})
 endmacro()
 

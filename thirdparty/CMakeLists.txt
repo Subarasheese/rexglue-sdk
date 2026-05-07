@@ -213,7 +213,7 @@ include(${PROJECT_SOURCE_DIR}/cmake/rexglue_fidelityfx.cmake)
 # imgui - Immediate mode GUI (no CMakeLists.txt, manual target)
 #=============================================================================
 set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/imgui")
-add_library(imgui STATIC
+add_library(imgui OBJECT
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_demo.cpp
     ${IMGUI_DIR}/imgui_draw.cpp
