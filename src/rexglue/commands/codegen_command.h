@@ -30,4 +30,12 @@ using rex::Result;
  */
 Result<void> CodegenFromConfig(const std::string& config_path, const CliContext& ctx);
 
+/**
+ * Discover the manifest TOML in the current working directory by scanning the
+ * top level for `.toml` files. Prefers `*_manifest.toml`; otherwise falls back
+ * to a single legacy `*_config.toml`. Returns the resolved path on success or
+ * a Config error explaining the ambiguity / absence on failure.
+ */
+Result<std::string> DiscoverManifestInCwd();
+
 }  // namespace rexglue::cli

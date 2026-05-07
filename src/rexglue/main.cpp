@@ -152,6 +152,7 @@ int main(int argc, char** argv) {
     rexglue::cli::InitOptions opts;
     opts.app_name = REXCVAR_GET(app_name);
     opts.app_root = REXCVAR_GET(app_root);
+    opts.xex_path = REXCVAR_GET(xex_path);
     opts.app_desc = REXCVAR_GET(app_desc);
     opts.app_author = REXCVAR_GET(app_author);
     opts.sdk_example = REXCVAR_GET(sdk_example);
@@ -166,18 +167,29 @@ int main(int argc, char** argv) {
       REXLOG_ERROR("--app_root is required for init command");
       return 1;
     }
+    if (opts.xex_path.empty()) {
+      REXLOG_ERROR("--xex_path is required for init command (path to entrypoint XEX)");
+      return 1;
+    }
 
     result = rexglue::cli::InitProject(opts, ctx);
   } else if (command == "codegen") {
-    if (remaining.size() < 2) {
-      REXLOG_ERROR("Missing config path. Usage: rexglue codegen <config.toml>");
-      return 1;
-    }
     if (remaining.size() > 2) {
       REXLOG_ERROR("Too many arguments for codegen command");
       return 1;
     }
-    std::string config_path = remaining[1];
+    std::string config_path;
+    if (remaining.size() == 2) {
+      config_path = remaining[1];
+    } else {
+      auto discovered = rexglue::cli::DiscoverManifestInCwd();
+      if (!discovered) {
+        REXLOG_ERROR("{}. Usage: rexglue codegen [config.toml]", discovered.error().what());
+        return 1;
+      }
+      config_path = *discovered;
+      REXLOG_INFO("Using manifest: {}", config_path);
+    }
     result = rexglue::cli::CodegenFromConfig(config_path, ctx);
   } else if (command == "recompile-tests") {
     std::string bin_dir = REXCVAR_GET(bin_dir);
