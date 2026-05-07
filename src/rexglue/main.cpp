@@ -35,15 +35,19 @@ REXCVAR_DEFINE_STRING(asm_dir, "", "RecompileTests",
 REXCVAR_DEFINE_STRING(output, "", "RecompileTests", "Output path for recompile-tests");
 
 // Init flags
-REXCVAR_DEFINE_STRING(app_name, "", "Init", "Project name for init command");
-REXCVAR_DEFINE_STRING(app_root, "", "Init", "Project root directory for init command");
-REXCVAR_DEFINE_STRING(app_desc, "", "Init", "Project description (optional)");
-REXCVAR_DEFINE_STRING(app_author, "", "Init", "Project author (optional)");
-REXCVAR_DEFINE_BOOL(sdk_example, false, "Init", "Create as SDK example (omit vcpkg.json)");
+REXCVAR_DEFINE_STRING(project_name, "", "Init",
+                      "Project name (becomes [project].name in the manifest)");
+REXCVAR_DEFINE_STRING(project_root, "", "Init",
+                      "Where to create the project (defaults to current directory)");
+REXCVAR_DEFINE_STRING(xex_path, "", "Init", "Path to entrypoint XEX (e.g. assets/Default.xex)");
+REXCVAR_DEFINE_STRING(game_root, "", "Init",
+                      "Game asset root for DLL guest-path derivation "
+                      "(defaults to the directory containing --xex_path)");
+REXCVAR_DEFINE_BOOL(scan_dll, false, "Init",
+                    "Scan --game_root for .dll files and add each as a [[modules]] entry");
 REXCVAR_DEFINE_STRING(template_dir, "", "Init", "Custom template directory for overrides");
 
-// Init module flags
-REXCVAR_DEFINE_STRING(xex_path, "", "InitModule", "Path to DLL XEX file");
+// Init module flags (init module subcommand)
 REXCVAR_DEFINE_STRING(guest_path, "", "InitModule", "Guest path for XexLoadImage matching");
 
 using rex::Ok;
@@ -59,7 +63,15 @@ void PrintUsage() {
   std::cerr << "Commands:\n";
   std::cerr << "  codegen <config.toml>   Analyze XEX and generate C++ code\n";
   std::cerr << "  init                    Initialize a new project\n";
+  std::cerr << "  init module             Add a DLL module to an existing project\n";
   std::cerr << "  recompile-tests         Generate Catch2 tests from PPC assembly\n\n";
+  std::cerr << "Init flags:\n";
+  std::cerr << "  --project_name=<name>   Project name (required)\n";
+  std::cerr << "  --xex_path=<path>       Path to entrypoint XEX (required)\n";
+  std::cerr << "  --game_root=<dir>       Asset root for DLL guest-path derivation\n";
+  std::cerr << "                          (default: directory containing --xex_path)\n";
+  std::cerr << "  --scan_dll              Scan --game_root for .dll files and add as modules\n";
+  std::cerr << "  --project_root=<dir>    Where to create the project (default: cwd)\n\n";
   std::cerr << "Codegen flags:\n";
   std::cerr
       << "  --target=a,b            Build specific DLL modules (entrypoint always included)\n\n";
@@ -138,33 +150,28 @@ int main(int argc, char** argv) {
   Result<void> result = Ok();
   if (command == "init" && subcommand == "module") {
     rexglue::cli::InitModuleOptions opts;
-    opts.app_root = REXCVAR_GET(app_root);
+    opts.app_root = REXCVAR_GET(project_root);
     opts.xex_path = REXCVAR_GET(xex_path);
     opts.guest_path = REXCVAR_GET(guest_path);
 
     if (opts.app_root.empty() || opts.xex_path.empty() || opts.guest_path.empty()) {
-      REXLOG_ERROR("--app_root, --xex_path, and --guest_path are required for init module");
+      REXLOG_ERROR("--project_root, --xex_path, and --guest_path are required for 'init module'");
       return 1;
     }
 
     result = rexglue::cli::InitModule(opts, ctx);
   } else if (command == "init") {
     rexglue::cli::InitOptions opts;
-    opts.app_name = REXCVAR_GET(app_name);
-    opts.app_root = REXCVAR_GET(app_root);
+    opts.project_name = REXCVAR_GET(project_name);
+    opts.project_root = REXCVAR_GET(project_root);
     opts.xex_path = REXCVAR_GET(xex_path);
-    opts.app_desc = REXCVAR_GET(app_desc);
-    opts.app_author = REXCVAR_GET(app_author);
-    opts.sdk_example = REXCVAR_GET(sdk_example);
+    opts.game_root = REXCVAR_GET(game_root);
+    opts.scan_dlls = REXCVAR_GET(scan_dll);
     opts.template_dir = REXCVAR_GET(template_dir);
     opts.force = ctx.overwrite_existing;
 
-    if (opts.app_name.empty()) {
-      REXLOG_ERROR("--app_name is required for init command");
-      return 1;
-    }
-    if (opts.app_root.empty()) {
-      REXLOG_ERROR("--app_root is required for init command");
+    if (opts.project_name.empty()) {
+      REXLOG_ERROR("--project_name is required for init command");
       return 1;
     }
     if (opts.xex_path.empty()) {

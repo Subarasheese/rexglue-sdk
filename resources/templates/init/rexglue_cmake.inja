@@ -9,6 +9,7 @@ set(REXSDK_VERSION "" CACHE STRING "Override SDK version (leave empty for defaul
 set(REXSDK_DIR "" CACHE PATH "Path to rexglue-sdk source tree")
 if(REXSDK_DIR)
     add_subdirectory("{{ cmake_var("REXSDK_DIR") }}" rexglue-sdk)
+    message(STATUS "Using ReXGlue SDK from source tree: {{ cmake_var("REXSDK_DIR") }}")
 else()
     if(REXSDK_VERSION)
         find_package(rexglue {{ cmake_var("REXSDK_VERSION") }} EXACT QUIET CONFIG)
@@ -21,6 +22,7 @@ else()
             "  - Set REXSDK_DIR to the rexglue-sdk source tree (e.g. thirdparty/rexglue-sdk)\n"
             "  - Install the SDK package and ensure it is on CMAKE_PREFIX_PATH")
     endif()
+    message(STATUS "Found ReXGlue SDK ${REXGLUE_VERSION_STRING} at ${rexglue_DIR}")
 endif()
 
 # Host target name used by the codegen-emitted dll_targets.cmake to colocate

@@ -13,6 +13,8 @@
 #include "template_utils.h"
 
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -23,6 +25,7 @@
 #include <rex/result.h>
 #include <rex/version.h>
 
+#include <fmt/chrono.h>
 #include <nlohmann/json.hpp>
 #include <toml++/toml.hpp>
 
@@ -35,72 +38,229 @@ using rex::Error;
 using rex::ErrorCategory;
 using rex::Ok;
 
-Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
-  (void)ctx;  // Currently unused
+namespace {
 
-  // Validate required options
-  if (opts.app_name.empty()) {
-    return Err<void>(ErrorCategory::Config, "--app_name is required");
+/**
+ * Render `target` relative to `base` using forward slashes. If `target` is
+ * not inside `base`, returns the absolute path so the manifest is still
+ * well-formed.
+ */
+std::string RelativeToBase(const fs::path& target, const fs::path& base) {
+  std::error_code ec;
+  fs::path rel = fs::relative(target, base, ec);
+  if (ec || rel.empty()) {
+    return target.generic_string();
   }
-  if (opts.app_root.empty()) {
-    return Err<void>(ErrorCategory::Config, "--app_root is required");
+  return rel.generic_string();
+}
+
+std::string LowercaseAscii(std::string s) {
+  std::transform(s.begin(), s.end(), s.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return s;
+}
+
+/**
+ * Canonical form for any path written into the manifest: forward slashes
+ * (TOML basic-string safe) and lowercase ASCII (matches guest_path
+ * normalization, so all path-shaped fields share a single transform).
+ */
+std::string ManifestPath(const fs::path& target, const fs::path& base) {
+  return LowercaseAscii(RelativeToBase(target, base));
+}
+
+std::string IsoUtcStamp() {
+  auto now = std::chrono::system_clock::now();
+  auto t = std::chrono::system_clock::to_time_t(now);
+  return fmt::format("{:%Y-%m-%d %H:%M:%S} UTC", fmt::gmtime(t));
+}
+
+}  // namespace
+
+Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
+  (void)ctx;
+
+  if (opts.project_name.empty()) {
+    return Err<void>(ErrorCategory::Config, "--project_name is required");
   }
   if (opts.xex_path.empty()) {
     return Err<void>(ErrorCategory::Config, "--xex_path is required (path to entrypoint XEX)");
   }
 
-  // Validate and parse app name
   std::string validation_error;
-  if (!validate_app_name(opts.app_name, validation_error)) {
+  if (!validate_app_name(opts.project_name, validation_error)) {
     return Err<void>(ErrorCategory::Config, validation_error);
   }
-  auto names = parse_app_name(opts.app_name);
+  auto names = parse_app_name(opts.project_name);
 
-  fs::path xexRel(opts.xex_path);
-  std::string xexPathStr = xexRel.generic_string();
-  std::string xexStem = xexRel.stem().string();
+  std::error_code ec;
+  fs::path projectRoot =
+      opts.project_root.empty() ? fs::current_path(ec) : fs::absolute(opts.project_root, ec);
+  if (ec) {
+    return Err<void>(ErrorCategory::IO, "Failed to resolve project root: " + ec.message());
+  }
+  projectRoot = fs::weakly_canonical(projectRoot, ec);
+  if (ec) {
+    ec.clear();
+    projectRoot = fs::absolute(projectRoot);
+  }
+
+  fs::path xexAbs = fs::absolute(opts.xex_path, ec);
+  if (ec) {
+    return Err<void>(ErrorCategory::IO,
+                     "Failed to resolve --xex_path '" + opts.xex_path + "': " + ec.message());
+  }
+  xexAbs = fs::weakly_canonical(xexAbs, ec);
+  if (ec) {
+    ec.clear();
+    xexAbs = fs::absolute(opts.xex_path);
+  }
+  if (!fs::exists(xexAbs)) {
+    return Err<void>(ErrorCategory::IO, "Entrypoint XEX not found: " + xexAbs.string() +
+                                            " (from --xex_path " + opts.xex_path + ")");
+  }
+  if (!fs::is_regular_file(xexAbs)) {
+    return Err<void>(ErrorCategory::IO, "--xex_path is not a regular file: " + xexAbs.string());
+  }
+
+  std::string xexStem = xexAbs.stem().string();
   if (xexStem.empty()) {
     return Err<void>(ErrorCategory::Config, "--xex_path has no filename: " + opts.xex_path);
   }
-  std::string outDir = "generated/" + xexStem;
+
+  fs::path gameRootAbs;
+  if (opts.game_root.empty()) {
+    gameRootAbs = xexAbs.parent_path();
+  } else {
+    gameRootAbs = fs::absolute(opts.game_root, ec);
+    if (ec) {
+      return Err<void>(ErrorCategory::IO,
+                       "Failed to resolve --game_root '" + opts.game_root + "': " + ec.message());
+    }
+    gameRootAbs = fs::weakly_canonical(gameRootAbs, ec);
+    if (ec) {
+      ec.clear();
+      gameRootAbs = fs::absolute(opts.game_root);
+    }
+  }
+  if (!fs::exists(gameRootAbs) || !fs::is_directory(gameRootAbs)) {
+    return Err<void>(ErrorCategory::IO, "--game_root is not a directory: " + gameRootAbs.string());
+  }
+
+  // The entrypoint XEX must be inside game_root so its guest_path lines up
+  // with the runtime's content root.
+  {
+    fs::path xexRelToGame = fs::relative(xexAbs, gameRootAbs, ec);
+    if (ec || xexRelToGame.empty() || xexRelToGame.native()[0] == '.') {
+      return Err<void>(ErrorCategory::Config, "--xex_path (" + xexAbs.string() +
+                                                  ") is not inside --game_root (" +
+                                                  gameRootAbs.string() + ")");
+    }
+  }
+
+  std::string outDir = LowercaseAscii("generated/" + xexStem);
+  std::string xexRelManifest = ManifestPath(xexAbs, projectRoot);
+  std::string gameRootRelManifest = ManifestPath(gameRootAbs, projectRoot);
+
+  // Discover DLL modules under game_root when --dll was passed. Each entry
+  // becomes a [[modules]] table in the manifest with file_path relative to
+  // the manifest dir and guest_path canonicalized from its location under
+  // game_root.
+  nlohmann::json modulesJson = nlohmann::json::array();
+  if (opts.scan_dlls) {
+    std::vector<fs::path> dllPaths;
+    fs::recursive_directory_iterator it(gameRootAbs, fs::directory_options::skip_permission_denied,
+                                        ec);
+    fs::recursive_directory_iterator end;
+    for (; !ec && it != end; it.increment(ec)) {
+      if (!it->is_regular_file())
+        continue;
+      auto ext = it->path().extension().string();
+      std::transform(ext.begin(), ext.end(), ext.begin(),
+                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+      if (ext != ".dll")
+        continue;
+      dllPaths.push_back(it->path());
+    }
+    std::sort(dllPaths.begin(), dllPaths.end());
+
+    for (const auto& dllAbs : dllPaths) {
+      fs::path relUnderGame = fs::relative(dllAbs, gameRootAbs, ec);
+      if (ec || relUnderGame.empty()) {
+        ec.clear();
+        continue;
+      }
+      std::string guestPath = rex::codegen::CanonicalizeModuleGuestPath(
+          relUnderGame.generic_string(), names.snake_case);
+      std::string filePath = ManifestPath(dllAbs, projectRoot);
+      std::string moduleStem = LowercaseAscii(dllAbs.stem().string());
+      std::replace(moduleStem.begin(), moduleStem.end(), '.', '_');
+      std::replace(moduleStem.begin(), moduleStem.end(), ' ', '_');
+      modulesJson.push_back({
+          {"guest_path", guestPath},
+          {"file_path", filePath},
+          {"out_directory_path", "generated/" + moduleStem},
+      });
+    }
+  }
 
   rex::codegen::TemplateRegistry registry;
   if (!opts.template_dir.empty())
     registry.loadOverrides(opts.template_dir);
 
-  nlohmann::json data = {{"names", names_to_json(names)}, {"sdk_version", REXGLUE_VERSION_NUMERIC},
-                         {"include_stamp", true},         {"xex_path", xexPathStr},
-                         {"out_directory_path", outDir},  {"entrypoint_out_dir", outDir}};
+  nlohmann::json data = {
+      {"names", names_to_json(names)},
+      {"sdk_version", REXGLUE_VERSION_NUMERIC},
+      {"sdk_version_full", REXGLUE_VERSION_STRING},
+      {"generated_on", IsoUtcStamp()},
+      {"include_stamp", true},
+      {"xex_path", xexRelManifest},
+      {"game_root", gameRootRelManifest},
+      {"out_directory_path", outDir},
+      {"entrypoint_out_dir", outDir},
+      {"modules", modulesJson},
+  };
   std::string jsonStr = data.dump();
 
-  fs::path root = fs::absolute(opts.app_root);
+  fs::path root = projectRoot;
 
   REXLOG_INFO("Initializing project '{}' at: {}", names.snake_case, root.string());
-  REXLOG_INFO("Mode: {}", opts.sdk_example ? "SDK example" : "standalone");
+  REXLOG_INFO("  Entrypoint XEX: {}", xexRelManifest);
+  REXLOG_INFO("  Game root:      {}", gameRootRelManifest);
+  if (opts.scan_dlls) {
+    REXLOG_INFO("  DLL modules:    {}", modulesJson.size());
+    for (const auto& m : modulesJson) {
+      REXLOG_INFO("    - {} -> {}", m["file_path"].get<std::string>(),
+                  m["guest_path"].get<std::string>());
+    }
+  }
 
-  // Check if directory exists and has contents
+  // Refuse to overwrite an existing codegen manifest unless --force is set.
+  // Other files in the directory are left alone; only a sibling TOML that
+  // parses as a manifest counts as a conflict.
   if (fs::exists(root)) {
     if (!fs::is_directory(root)) {
       return Err<void>(ErrorCategory::IO, "Path exists but is not a directory: " + root.string());
     }
 
-    bool has_contents = false;
-    for (const auto& entry : fs::directory_iterator(root)) {
-      (void)entry;
-      has_contents = true;
-      break;
-    }
-
-    if (has_contents && !opts.force) {
-      return Err<void>(ErrorCategory::IO,
-                       "Directory is not empty. Use --force to overwrite: " + root.string());
+    if (!opts.force) {
+      for (const auto& entry : fs::directory_iterator(root)) {
+        if (!entry.is_regular_file())
+          continue;
+        if (entry.path().extension() != ".toml")
+          continue;
+        if (rex::codegen::ManifestConfig::IsManifest(entry.path())) {
+          return Err<void>(ErrorCategory::IO,
+                           "Existing codegen manifest found. Use --force to overwrite: " +
+                               entry.path().string());
+        }
+      }
     }
   }
 
   // Create directory structure
   REXLOG_INFO("Creating directory structure...");
 
-  std::error_code ec;
   fs::create_directories(root, ec);
   if (ec) {
     return Err<void>(ErrorCategory::IO, "Failed to create root directory: " + ec.message());
@@ -156,7 +316,7 @@ Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
   REXLOG_DEBUG("  Created CMakePresets.json");
 
   // Print success message with next steps
-  REXLOG_INFO("Project '{}' initialized in '{}' successfully!", names.snake_case, opts.app_root);
+  REXLOG_INFO("Project '{}' initialized in '{}' successfully!", names.snake_case, root.string());
 
   return Ok();
 }
@@ -209,6 +369,7 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
   std::string guestPath =
       rex::codegen::CanonicalizeModuleGuestPath(opts.guest_path, manifest->projectName);
 
+  // Parse-only check for duplicates and to surface syntax errors.
   toml::table manifestTbl;
   try {
     manifestTbl = toml::parse_file(manifestPath.string());
@@ -216,41 +377,52 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
     return Err<void>(rex::ErrorCategory::Config,
                      fmt::format("Manifest parse error: {}", err.what()));
   }
-
-  auto* modulesArr = manifestTbl["modules"].as_array();
-  if (!modulesArr) {
-    manifestTbl.insert_or_assign("modules", toml::array{});
-    modulesArr = manifestTbl["modules"].as_array();
-  }
-
-  for (const auto& mod : *modulesArr) {
-    auto* modTbl = mod.as_table();
-    if (!modTbl)
-      continue;
-    auto existing_file = (*modTbl)["file_path"].value_or<std::string>("");
-    auto existing_guest = (*modTbl)["guest_path"].value_or<std::string>("");
-    if (existing_file == xexPath || existing_guest == guestPath) {
-      REXLOG_INFO("Manifest already lists this module; nothing to do.");
-      return Ok();
+  if (auto* modulesArr = manifestTbl["modules"].as_array()) {
+    for (const auto& mod : *modulesArr) {
+      auto* modTbl = mod.as_table();
+      if (!modTbl)
+        continue;
+      auto existing_file = (*modTbl)["file_path"].value_or<std::string>("");
+      auto existing_guest = (*modTbl)["guest_path"].value_or<std::string>("");
+      if (existing_file == xexPath || existing_guest == guestPath) {
+        REXLOG_INFO("Manifest already lists this module; nothing to do.");
+        return Ok();
+      }
     }
   }
 
-  toml::table newEntry;
-  newEntry.insert_or_assign("guest_path", guestPath);
-  newEntry.insert_or_assign("file_path", xexPath);
-  newEntry.insert_or_assign("out_directory_path", "generated/" + moduleName);
-  newEntry.insert_or_assign("includes", toml::array{});
-  modulesArr->push_back(std::move(newEntry));
+  // Append to the file textually so user comments and formatting survive.
+  std::ifstream in(manifestPath);
+  if (!in) {
+    return Err<void>(rex::ErrorCategory::IO,
+                     "Failed to open manifest for reading: " + manifestPath.string());
+  }
+  std::stringstream ss;
+  ss << in.rdbuf();
+  std::string content = ss.str();
+  in.close();
+
+  if (!content.empty() && content.back() != '\n') {
+    content.push_back('\n');
+  }
+
+  std::string entry;
+  entry += "\n[[modules]]\n";
+  entry += fmt::format("guest_path = \"{}\"\n", guestPath);
+  entry += fmt::format("file_path = \"{}\"\n", xexPath);
+  entry += fmt::format("out_directory_path = \"generated/{}\"\n", moduleName);
+  entry += "includes = []\n";
+  content += entry;
 
   auto tmpPath = manifestPath;
   tmpPath += ".tmp";
   {
-    std::ofstream out(tmpPath);
+    std::ofstream out(tmpPath, std::ios::binary);
     if (!out) {
       return Err<void>(rex::ErrorCategory::IO,
                        "Failed to open manifest tmp for writing: " + tmpPath.string());
     }
-    out << manifestTbl;
+    out << content;
     if (!out.good()) {
       std::error_code ignore;
       fs::remove(tmpPath, ignore);

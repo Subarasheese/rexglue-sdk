@@ -25,14 +25,14 @@ using rex::Result;
  * Options for the init command
  */
 struct InitOptions {
-  std::string app_name;      // Project name (required)
-  std::string app_root;      // Project root directory (required)
-  std::string xex_path;      // Path to entrypoint XEX (required)
-  std::string app_desc;      // Optional project description
-  std::string app_author;    // Optional author name
-  std::string template_dir;  ///< Optional custom template directory
-  bool sdk_example = false;  // If true, omit vcpkg.json (child of rexglue)
-  bool force = false;        // Overwrite existing directory contents
+  std::string project_name;  ///< Project name (required, becomes [project].name)
+  std::string xex_path;      ///< Path to entrypoint XEX (required)
+  std::string game_root;     ///< Game asset root for DLL guest-path derivation.
+                             ///< Defaults to the directory containing xex_path.
+  std::string project_root;  ///< Where to create the project. Defaults to CWD.
+  bool scan_dlls = false;    ///< --dll: scan game_root for .dll files and add as [[modules]]
+  std::string template_dir;  ///< Optional custom template directory for overrides
+  bool force = false;        ///< Overwrite existing non-empty directory
 };
 
 /**

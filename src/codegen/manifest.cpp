@@ -102,6 +102,9 @@ std::optional<ManifestConfig> ManifestConfig::Load(const std::filesystem::path& 
   if (auto stamp = (*project)["sdk_version"].value<std::string>(); stamp && !stamp->empty()) {
     manifest.sdkVersion = *stamp;
   }
+  if (auto root = (*project)["game_root"].value<std::string>(); root && !root->empty()) {
+    manifest.gameRoot = *root;
+  }
 
   auto* entrypoint = tbl["entrypoint"].as_table();
   if (!entrypoint) {
