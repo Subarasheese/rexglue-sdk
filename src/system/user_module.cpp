@@ -248,14 +248,9 @@ uint32_t UserModule::GetProcAddressByOrdinal(uint16_t ordinal, uint32_t caller_a
     return guest_addr;
   }
 
-  // Allocate a thunk in the caller's module thunk range so the caller can
-  // dispatch through its own PPC_LOOKUP_FUNC with its own per-module constants.
-  // Without this, an address in another module's code range would compute a
-  // wrong (or out-of-bounds) index into the caller's dispatch table.
   auto* dispatcher = kernel_state_->function_dispatcher();
   auto* func = dispatcher->GetFunction(guest_addr);
   if (!func) {
-    // DLL not recompiled - return raw guest address (interpreted binary path)
     return guest_addr;
   }
 
