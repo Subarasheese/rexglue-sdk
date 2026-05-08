@@ -564,8 +564,8 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
               for (auto label : activeJt->targets) {
                 labels.emplace(label);
               }
-              REXCODEGEN_INFO("Late-detected jump table at 0x{:08X} with {} entries", blockBase,
-                              activeJt->targets.size());
+              REXCODEGEN_TRACE("Late-detected jump table at 0x{:08X} with {} entries", blockBase,
+                               activeJt->targets.size());
             }
           }
         }
@@ -1102,7 +1102,7 @@ void FunctionGraph::sealAll() {
     throw std::runtime_error(msg);
   }
 
-  REXCODEGEN_INFO("FunctionGraph::sealAll: all {} functions sealed", functions_.size());
+  REXCODEGEN_TRACE("FunctionGraph::sealAll: all {} functions sealed", functions_.size());
 }
 
 //=============================================================================

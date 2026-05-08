@@ -47,23 +47,12 @@ struct MigrationFindings {
   std::vector<MigrationWarning> warnings;
 };
 
-/**
- * One identifier-level breaking-change rule. Whole-token match (C identifier
- * boundary). Empty `replacement` turns it into a warn-only rule with `reason`
- * as the hint shown to the user.
- */
 struct BreakingChangeRule {
   std::string_view legacy_token;
   std::string_view replacement;
   std::string_view reason;
 };
 
-/**
- * One call-site pattern flagging code that needs manual review (the SDK can
- * detect it but cannot safely auto-rewrite). `pattern` is a literal substring
- * pre-filter; `confirm`, when non-null, narrows matches by inspecting the
- * full line (e.g. paren-balanced arity checks).
- */
 struct CallSiteRule {
   std::string_view pattern;
   std::string_view detail;

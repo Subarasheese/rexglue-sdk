@@ -31,6 +31,9 @@
 #include <rex/runtime.h>
 #include <rex/system/user_module.h>
 
+#include <chrono>
+
+#include "codegen_logging.h"
 #include "template_registry_internal.h"
 
 namespace rex::codegen {
@@ -56,13 +59,12 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
   writtenFiles_.clear();
 
   if (manifest_.modules.empty()) {
-    REXLOG_INFO("Recompiling '{}' (entrypoint)", manifest_.projectName);
+    REXCODEGEN_TRACE("Recompiling '{}' (entrypoint)", manifest_.projectName);
   } else {
-    REXLOG_INFO("Recompiling '{}' (entrypoint + {} DLL{})", manifest_.projectName,
-                manifest_.modules.size(), manifest_.modules.size() == 1 ? "" : "s");
+    REXCODEGEN_TRACE("Recompiling '{}' (entrypoint + {} DLL{})", manifest_.projectName,
+                     manifest_.modules.size(), manifest_.modules.size() == 1 ? "" : "s");
   }
 
-  // Collect all module entries (one for the entrypoint + one per [[modules]]).
   struct ModuleEntry {
     std::string targetName;
     std::string guestPath;
@@ -106,7 +108,6 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
     }
   }
 
-  // Filter by --target (entrypoint always included)
   std::vector<ModuleEntry> targeted;
   targeted.push_back(std::move(allModules[0]));
   for (size_t i = 1; i < allModules.size(); ++i) {
@@ -134,9 +135,6 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
     }
   }
 
-  // ---- Phase 0: Create one Runtime and load ALL XEXs upfront ----
-
-  // Resolve entrypoint XEX path (needed to set up the Runtime content root)
   const auto& entryConfig = targeted[0].config;
   auto configDir = manifest_.manifestDir;
   fs::path entryXexPath = configDir / entryConfig.filePath;
@@ -221,26 +219,29 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
       return Err<void>(ErrorCategory::IO,
                        fmt::format("Failed to load DLL module: {}", targeted[i].targetName));
     }
-    REXLOG_INFO("Loaded DLL module '{}' at base 0x{:08X}", targeted[i].targetName,
-                userMod->xex_module()->base_address());
+    REXCODEGEN_TRACE("Loaded DLL module '{}' at base 0x{:08X}", targeted[i].targetName,
+                     userMod->xex_module()->base_address());
     dllModules.push_back(std::move(userMod));
   }
-
-  // ---- Phase 1: Create contexts from loaded modules and analyze ----
 
   struct ContextEntry {
     CodegenContext ctx;
     const ModuleEntry* module;
+    std::string display_name;
   };
   std::vector<ContextEntry> contexts;
 
+  auto make_display_name = [](const std::string& filePath) {
+    return std::filesystem::path(filePath).filename().string();
+  };
+
   auto* resolver = runtime->export_resolver();
 
-  // Entrypoint context from executable module
   {
     auto execMod = runtime->kernel_state()->GetExecutableModule();
     auto bv = BinaryView::fromModule(*execMod->xex_module());
 
+    auto entry_display = make_display_name(targeted[0].config.filePath);
     RecompilerConfig cfg = std::move(targeted[0].config);
     if (opts.enableExceptionHandlers)
       cfg.generateExceptionHandlers = true;
@@ -256,14 +257,14 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
     if (ctx.Config().isDll.has_value())
       ctx.setDllModule(*ctx.Config().isDll);
 
-    contexts.push_back({std::move(ctx), &targeted[0]});
+    contexts.push_back({std::move(ctx), &targeted[0], std::move(entry_display)});
   }
 
-  // DLL contexts from stored user module refs
   for (size_t i = 0; i < dllModules.size(); ++i) {
     auto& userMod = dllModules[i];
     auto bv = BinaryView::fromModule(*userMod->xex_module());
 
+    auto dll_display = make_display_name(targeted[i + 1].config.filePath);
     RecompilerConfig cfg = std::move(targeted[i + 1].config);
     if (opts.enableExceptionHandlers)
       cfg.generateExceptionHandlers = true;
@@ -278,20 +279,28 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
     ctx.setDllModule(ctx.Config().isDll.value_or(true));
     ctx.setHasDllModules(true);
 
-    contexts.push_back({std::move(ctx), &targeted[i + 1]});
+    contexts.push_back({std::move(ctx), &targeted[i + 1], std::move(dll_display)});
   }
 
-  // Run analysis on each context
-  for (auto& entry : contexts) {
-    REXLOG_INFO("Analyzing '{}'...", entry.module->targetName);
-    auto result = Analyze(entry.ctx);
+  std::vector<std::chrono::steady_clock::time_point> module_started_at(contexts.size());
+  for (size_t i = 0; i < contexts.size(); ++i) {
+    auto& entry = contexts[i];
+    if (opts.reporter) {
+      opts.reporter->moduleStarted(entry.display_name, i, contexts.size());
+    }
+    module_started_at[i] = std::chrono::steady_clock::now();
+    REXCODEGEN_TRACE("Analyzing '{}'...", entry.module->targetName);
+    auto result = Analyze(entry.ctx, opts.reporter);
     if (!result) {
-      REXLOG_ERROR("Analysis failed for '{}'", entry.module->targetName);
-      return result;
+      if (opts.force && result.error().category == ErrorCategory::Validation) {
+        REXLOG_WARN("Analysis errors for '{}' (continuing due to --force): {}",
+                    entry.module->targetName, result.error().message);
+      } else {
+        REXLOG_ERROR("Analysis failed for '{}'", entry.module->targetName);
+        return result;
+      }
     }
   }
-
-  // ---- Phase 2: Verify non-overlapping address ranges ----
 
   for (size_t i = 0; i < contexts.size(); ++i) {
     uint32_t a_base = contexts[i].ctx.binary().baseAddress();
@@ -308,12 +317,15 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
     }
   }
 
-  // ---- Phase 3: Write output ----
-
   deletedFiles_.clear();
   writtenFiles_.clear();
-  for (auto& entry : contexts) {
-    REXLOG_INFO("Writing output for '{}'...", entry.module->targetName);
+  for (size_t i = 0; i < contexts.size(); ++i) {
+    auto& entry = contexts[i];
+    if (opts.reporter) {
+      opts.reporter->moduleStarted(entry.display_name, i, contexts.size());
+      opts.reporter->phaseChanged("Write");
+    }
+    REXCODEGEN_TRACE("Writing output for '{}'...", entry.module->targetName);
     CodegenWriter writer(entry.ctx, runtime.get());
     if (!writer.write(opts.force)) {
       return Err<void>(ErrorCategory::Validation,
@@ -323,14 +335,15 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
                          writer.deletedFiles().end());
     writtenFiles_.insert(writtenFiles_.end(), writer.writtenFiles().begin(),
                          writer.writtenFiles().end());
+    if (opts.reporter) {
+      auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - module_started_at[i]);
+      opts.reporter->moduleFinished(elapsed);
+    }
   }
 
-  // ---- Phases 4 & 5: Emit project-level artifacts (module_registry + cmake) ----
-  // Both phases iterate the same `targeted` list so registry entries always
-  // correspond to actually-emitted DLL targets.
-
   if (manifest_.modules.empty()) {
-    REXLOG_INFO("Project recompiler complete");
+    REXCODEGEN_TRACE("Project recompiler complete");
     return Ok();
   }
 
@@ -342,7 +355,8 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
                                                     outputPath.string(), mk_ec.message()));
   }
 
-  // Phase 4: module_registry.cpp
+  if (opts.reporter)
+    opts.reporter->projectPhaseStarted("module_registry");
   {
     nlohmann::json registryData;
     registryData["project"] = manifest_.projectName;
@@ -374,10 +388,13 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
                        fmt::format("Failed while writing {}", registryPath.string()));
     }
     writtenFiles_.push_back(registryPath.filename().string());
-    REXLOG_INFO("Wrote {}", registryPath.string());
+    REXCODEGEN_TRACE("Wrote {}", registryPath.string());
   }
+  if (opts.reporter)
+    opts.reporter->projectPhaseFinished();
 
-  // Phase 5: dll_targets.cmake
+  if (opts.reporter)
+    opts.reporter->projectPhaseStarted("dll_targets.cmake");
   {
     nlohmann::json dllTargetsData;
     auto& dllTargetsArray = dllTargetsData["dll_modules"];
@@ -406,10 +423,12 @@ Result<void> ProjectRecompiler::Run(const ProjectRecompilerOptions& opts) {
                        fmt::format("Failed while writing {}", dllCmakePath.string()));
     }
     writtenFiles_.push_back(dllCmakePath.filename().string());
-    REXLOG_INFO("Wrote {}", dllCmakePath.string());
+    REXCODEGEN_TRACE("Wrote {}", dllCmakePath.string());
   }
+  if (opts.reporter)
+    opts.reporter->projectPhaseFinished();
 
-  REXLOG_INFO("Project recompiler complete");
+  REXCODEGEN_TRACE("Project recompiler complete");
   return Ok();
 }
 

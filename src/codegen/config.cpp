@@ -463,8 +463,8 @@ bool FinalizeConfig(RecompilerConfig& cfg) {
       if (fc.isChunk())
         chunks_count++;
     }
-    REXCODEGEN_INFO("Loaded {} function configs ({} standalone, {} chunks)", cfg.functions.size(),
-                    cfg.functions.size() - chunks_count, chunks_count);
+    REXCODEGEN_TRACE("Loaded {} function configs ({} standalone, {} chunks)", cfg.functions.size(),
+                     cfg.functions.size() - chunks_count, chunks_count);
   }
   if (!cfg.exceptionHandlerFuncHints.empty()) {
     std::sort(cfg.exceptionHandlerFuncHints.begin(), cfg.exceptionHandlerFuncHints.end());

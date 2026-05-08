@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <rex/codegen/manifest.h>
+#include <rex/codegen/progress_reporter.h>
 #include <rex/result.h>
 
 namespace rex::codegen {
@@ -23,6 +24,7 @@ struct ProjectRecompilerOptions {
   std::vector<std::string> targets;  // empty = all
   bool force = false;
   bool enableExceptionHandlers = false;
+  ProgressReporter* reporter = nullptr;
 };
 
 class ProjectRecompiler {

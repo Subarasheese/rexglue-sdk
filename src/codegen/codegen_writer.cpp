@@ -147,7 +147,7 @@ bool CodegenWriter::write(bool force) {
 
   // --- Output directory setup (from recompile.cpp) ---
   std::filesystem::path outputPath = ctx_.configDir() / config().outDirectoryPath;
-  REXCODEGEN_INFO("Output path: {}", outputPath.string());
+  REXCODEGEN_TRACE("Output path: {}", outputPath.string());
   std::filesystem::create_directories(outputPath);
 
   // --- Clean old generated files (from recompile.cpp) ---
@@ -227,7 +227,7 @@ bool CodegenWriter::write(bool force) {
     emitCtx.resolver = runtime_->export_resolver();
 
   // Generate recomp files with size-based splitting
-  REXCODEGEN_INFO("Recompiling {} functions...", functions.size());
+  REXCODEGEN_TRACE("Recompiling {} functions...", functions.size());
   size_t currentFileBytes = 0;
   println("#include \"{}_init.h\"\n", projectName);
 
@@ -250,7 +250,7 @@ bool CodegenWriter::write(bool force) {
   }
 
   SaveCurrentOutData();
-  REXCODEGEN_INFO("Recompilation complete.");
+  REXCODEGEN_TRACE("Recompilation complete.");
 
   // Generate sources.cmake
   REXCODEGEN_TRACE("Recompile: generating sources.cmake");

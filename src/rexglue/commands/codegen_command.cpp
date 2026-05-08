@@ -2,27 +2,26 @@
  * @file        rexglue/commands/codegen_command.cpp
  * @brief       Code generation command implementation
  *
- * @copyright   Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
- *              All rights reserved.
- *
+ * @copyright   Copyright (c) 2026 Tom Clay
  * @license     BSD 3-Clause License
- *              See LICENSE file in the project root for full license text.
  */
 
 #include "codegen_command.h"
+#include "../ui/progress.h"
+#include "../ui/ui.h"
+#include "legacy_config.h"
 #include "migration_scan.h"
 #include "template_utils.h"
-#include "upgrade_prompt.h"
 
-#include <array>
 #include <filesystem>
 #include <fstream>
-#include <optional>
+#include <memory>
 #include <span>
 #include <string_view>
 #include <unordered_set>
 #include <vector>
 
+#include <CLI/CLI.hpp>
 #include <fmt/format.h>
 #include <toml++/toml.hpp>
 
@@ -37,297 +36,19 @@ namespace {
 
 namespace fs = std::filesystem;
 
-struct AbsorbedManifest {
-  fs::path manifest_path;
-  fs::path legacy_path;
-  std::string project_name;
-  std::string out_directory_path;
-  std::string manifest_content;         ///< New <name>_manifest.toml content
-  std::string stripped_legacy_content;  ///< Legacy file overwritten with sub-tables only
+struct ActionStrings {
+  std::string_view verb;
+  std::string_view label;
 };
 
-/**
- * Returns the table name when `line` is a non-array section header like
- * `[name]`, otherwise nullopt.
- */
-std::optional<std::string> ParseSectionHeader(std::string_view line) {
-  auto first = line.find_first_not_of(" \t");
-  if (first == std::string_view::npos)
-    return std::nullopt;
-  if (line[first] != '[' || (first + 1 < line.size() && line[first + 1] == '['))
-    return std::nullopt;
-  auto end = line.find(']', first + 1);
-  if (end == std::string_view::npos)
-    return std::nullopt;
-  return std::string(line.substr(first + 1, end - first - 1));
-}
-
-bool LineSetsKey(std::string_view line, std::string_view key) {
-  auto first = line.find_first_not_of(" \t");
-  if (first == std::string_view::npos)
-    return false;
-  if (line.compare(first, key.size(), key) != 0)
-    return false;
-  auto after = first + key.size();
-  while (after < line.size() && (line[after] == ' ' || line[after] == '\t'))
-    ++after;
-  return after < line.size() && line[after] == '=';
-}
-
-/**
- * Returns the index of the line that closes the value started on `start_line`.
- * For single-line scalars that's the same line; for multi-line array literals
- * it walks forward until brackets balance.
- */
-size_t FindAssignmentEndLine(const std::vector<std::string>& lines, size_t start_line) {
-  int depth = 0;
-  bool seen_open = false;
-  for (size_t j = start_line; j < lines.size(); ++j) {
-    bool in_string = false;
-    char quote = 0;
-    for (size_t k = 0; k < lines[j].size(); ++k) {
-      char c = lines[j][k];
-      if (in_string) {
-        if (c == '\\' && k + 1 < lines[j].size()) {
-          ++k;
-          continue;
-        }
-        if (c == quote)
-          in_string = false;
-        continue;
-      }
-      if (c == '#')
-        break;
-      if (c == '"' || c == '\'') {
-        in_string = true;
-        quote = c;
-        continue;
-      }
-      if (c == '[') {
-        ++depth;
-        seen_open = true;
-      } else if (c == ']') {
-        --depth;
-      }
-    }
-    if (!seen_open)
-      return j;  // single-line scalar
-    if (depth <= 0)
-      return j;
+ActionStrings ActionStringsFor(OverwriteAction action) {
+  switch (action) {
+    case OverwriteAction::Write:
+      return {"Wrote", "write "};
+    case OverwriteAction::Delete:
+      return {"Deleted", "delete"};
   }
-  return lines.size() - 1;
-}
-
-/**
- * TOML basic string literal with conservative escaping.
- */
-std::string RenderTomlString(std::string_view value) {
-  std::string out = "\"";
-  for (char c : value) {
-    switch (c) {
-      case '\\':
-        out.append("\\\\");
-        break;
-      case '"':
-        out.append("\\\"");
-        break;
-      case '\n':
-        out.append("\\n");
-        break;
-      case '\t':
-        out.append("\\t");
-        break;
-      default:
-        out.push_back(c);
-    }
-  }
-  out.push_back('"');
-  return out;
-}
-
-std::string RenderStringLine(std::string_view key, std::string_view value) {
-  std::string out;
-  out.append(key);
-  out.append(" = ");
-  out.append(RenderTomlString(value));
-  return out;
-}
-
-/**
- * Read the legacy single-binary config and produce a thin manifest plus a
- * stripped-down version of the legacy file. The manifest holds project
- * metadata + an [entrypoint] table that points the legacy file via includes;
- * the legacy file keeps its codegen flags / [functions] / [rexcrt] / comments
- * but loses core attrs that are now in the manifest. Returns nullopt when the
- * legacy file lacks a usable project_name.
- */
-std::optional<AbsorbedManifest> AbsorbLegacyConfig(const fs::path& legacy_path) {
-  toml::table tbl;
-  try {
-    tbl = toml::parse_file(legacy_path.string());
-  } catch (const toml::parse_error& err) {
-    REXLOG_ERROR("Failed to parse legacy config {}: {}", legacy_path.string(), err.what());
-    return std::nullopt;
-  }
-
-  auto project_name = tbl["project_name"].value_or<std::string>("");
-  if (project_name.empty() || project_name == "rex") {
-    return std::nullopt;
-  }
-  auto file_path = tbl["file_path"].value_or<std::string>("");
-  if (file_path.empty()) {
-    REXLOG_ERROR("Legacy config {} missing required file_path", legacy_path.string());
-    return std::nullopt;
-  }
-  auto out_directory_path = tbl["out_directory_path"].value_or<std::string>("");
-  if (out_directory_path.empty()) {
-    out_directory_path = "generated/" + fs::path(file_path).stem().string();
-  }
-
-  std::string legacy_content = read_file(legacy_path);
-  if (legacy_content.empty()) {
-    return std::nullopt;
-  }
-
-  std::vector<std::string> lines;
-  {
-    std::string buf;
-    for (char c : legacy_content) {
-      if (c == '\n') {
-        lines.push_back(std::move(buf));
-        buf.clear();
-      } else if (c != '\r') {
-        buf.push_back(c);
-      }
-    }
-    if (!buf.empty())
-      lines.push_back(std::move(buf));
-  }
-
-  // Find the first section header. Everything before it is top-level content
-  // (codegen scalars, comments, blanks) that belongs in the manifest's
-  // [entrypoint] table. From the header onward, the legacy file owns it (as a
-  // data include for [functions]/[rexcrt]/etc.).
-  size_t first_section_idx = lines.size();
-  for (size_t i = 0; i < lines.size(); ++i) {
-    if (ParseSectionHeader(lines[i])) {
-      first_section_idx = i;
-      break;
-    }
-  }
-
-  // Drop the keys the manifest emits explicitly so we don't duplicate them.
-  static constexpr std::array<std::string_view, 7> kManifestEmittedKeys = {
-      "project_name",    "file_path",         "out_directory_path", "template_dir",
-      "patch_file_path", "patched_file_path", "includes",
-  };
-
-  // Walk top-level assignments. Drop comments + blanks (the port carries no
-  // user prose into the manifest) and skip keys the manifest emits itself.
-  std::string entrypoint_body;
-  size_t i = 0;
-  while (i < first_section_idx) {
-    auto first_nonws = lines[i].find_first_not_of(" \t");
-    if (first_nonws == std::string::npos || lines[i][first_nonws] == '#') {
-      ++i;
-      continue;
-    }
-    bool emitted_by_manifest = false;
-    for (auto key : kManifestEmittedKeys) {
-      if (LineSetsKey(lines[i], key)) {
-        emitted_by_manifest = true;
-        break;
-      }
-    }
-    size_t end = FindAssignmentEndLine(lines, i);
-    if (!emitted_by_manifest) {
-      for (size_t j = i; j <= end; ++j) {
-        // Drop blank lines inside multi-line array literals too; strip
-        // produces a tighter block.
-        auto fn = lines[j].find_first_not_of(" \t");
-        if (fn == std::string::npos)
-          continue;
-        entrypoint_body.append(lines[j]);
-        entrypoint_body.push_back('\n');
-      }
-    }
-    i = end + 1;
-  }
-
-  // Stripped legacy = section headers and below (data only). Drop comments
-  // and blanks; legacy projects mostly carry old init-template boilerplate
-  // that's just noise once the manifest takes over. One blank line is
-  // re-inserted before each section header for readability.
-  std::string stripped;
-  for (size_t j = first_section_idx; j < lines.size(); ++j) {
-    auto first_nonws = lines[j].find_first_not_of(" \t");
-    if (first_nonws == std::string::npos)
-      continue;
-    if (lines[j][first_nonws] == '#')
-      continue;
-    if (ParseSectionHeader(lines[j]) && !stripped.empty())
-      stripped.push_back('\n');
-    stripped.append(lines[j]);
-    stripped.push_back('\n');
-  }
-
-  // Manifest's [entrypoint].includes references the (now stripped) legacy
-  // file plus any includes the legacy file used to declare.
-  std::vector<std::string> entrypoint_includes;
-  if (!stripped.empty())
-    entrypoint_includes.push_back(legacy_path.filename().string());
-  if (auto* arr = tbl["includes"].as_array()) {
-    for (const auto& elem : *arr) {
-      if (auto s = elem.value<std::string>()) {
-        entrypoint_includes.push_back(*s);
-      }
-    }
-  }
-
-  std::string manifest_content;
-  manifest_content += "[project]\n";
-  manifest_content += RenderStringLine("name", project_name);
-  manifest_content += "\n\n[entrypoint]\n";
-  manifest_content += RenderStringLine("file_path", file_path);
-  manifest_content += '\n';
-  manifest_content += RenderStringLine("out_directory_path", out_directory_path);
-  manifest_content += '\n';
-  if (auto v = tbl["template_dir"].value<std::string>()) {
-    manifest_content += RenderStringLine("template_dir", *v);
-    manifest_content += '\n';
-  }
-  if (auto v = tbl["patch_file_path"].value<std::string>()) {
-    manifest_content += RenderStringLine("patch_file_path", *v);
-    manifest_content += '\n';
-  }
-  if (auto v = tbl["patched_file_path"].value<std::string>()) {
-    manifest_content += RenderStringLine("patched_file_path", *v);
-    manifest_content += '\n';
-  }
-  if (!entrypoint_includes.empty()) {
-    manifest_content += "includes = [\n";
-    for (const auto& inc : entrypoint_includes) {
-      manifest_content += "  ";
-      manifest_content += RenderTomlString(inc);
-      manifest_content += ",\n";
-    }
-    manifest_content += "]\n";
-  }
-  if (!entrypoint_body.empty()) {
-    manifest_content += '\n';
-    manifest_content += entrypoint_body;
-    manifest_content += '\n';
-  }
-
-  AbsorbedManifest result;
-  result.legacy_path = legacy_path;
-  result.project_name = project_name;
-  result.out_directory_path = out_directory_path;
-  auto names = parse_app_name(project_name);
-  result.manifest_path = legacy_path.parent_path() / (names.snake_case + "_manifest.toml");
-  result.manifest_content = std::move(manifest_content);
-  result.stripped_legacy_content = std::move(stripped);
-  return result;
+  return {"Touched", "?     "};
 }
 
 bool ApplyEntry(const OverwriteEntry& entry) {
@@ -351,7 +72,7 @@ bool ApplyEntry(const OverwriteEntry& entry) {
       }
       return true;
     }
-    case OverwriteAction::Delete: {
+    case OverwriteAction::Delete:
       if (!fs::exists(entry.path))
         return true;
       if (!fs::remove(entry.path, ec) || ec) {
@@ -359,92 +80,78 @@ bool ApplyEntry(const OverwriteEntry& entry) {
         return false;
       }
       return true;
-    }
   }
   return false;
 }
 
-const char* ActionVerb(OverwriteAction action) {
-  switch (action) {
-    case OverwriteAction::Write:
-      return "Wrote";
-    case OverwriteAction::Delete:
-      return "Deleted";
-  }
-  return "Touched";
-}
-
-Result<void> PromptConsent(const std::vector<OverwriteEntry>& plan, std::string_view from_version,
-                           std::string_view to_version, bool force) {
-  std::vector<OverwriteEntry> for_prompt;
-  for (const auto& entry : plan) {
-    if (!entry.silent)
-      for_prompt.push_back(entry);
-  }
-  if (for_prompt.empty()) {
-    return rex::Ok();
-  }
-  auto consent = PromptForUpgradeConsent(for_prompt, from_version, to_version, force);
-  if (!consent) {
-    return Err<void>(consent.error());
-  }
-  if (*consent == UpgradeConsent::Declined) {
-    return Err<void>(rex::ErrorCategory::UserAbort, "Upgrade declined; codegen aborted.");
-  }
-  return rex::Ok();
-}
-
-Result<void> ApplyPlanEntries(const std::vector<OverwriteEntry>& plan) {
+Result<void> ApplyPlan(const std::vector<OverwriteEntry>& plan) {
   for (const auto& entry : plan) {
     if (!ApplyEntry(entry)) {
       return Err<void>(rex::ErrorCategory::IO,
                        fmt::format("Failed to apply: {}", entry.path.string()));
     }
-    REXLOG_INFO("{}: {}", ActionVerb(entry.action), entry.path.generic_string());
+    REXLOG_TRACE("{}: {}", ActionStringsFor(entry.action).verb, entry.path.generic_string());
   }
   return rex::Ok();
 }
 
-void EmitWarnings(std::span<const MigrationWarning> warnings, std::string_view header) {
-  if (warnings.empty())
-    return;
-  REXLOG_WARN("{}", header);
-  for (const auto& w : warnings) {
-    REXLOG_WARN("  {}:{}: {}", w.file.generic_string(), w.line_number, w.detail);
-    if (!w.hint.empty())
-      REXLOG_WARN("           {}", w.hint);
+Result<void> PromptConsent(const std::vector<OverwriteEntry>& plan, bool force) {
+  std::vector<ui::PlanRow> rows;
+  for (const auto& e : plan) {
+    if (e.silent)
+      continue;
+    rows.push_back({ActionStringsFor(e.action).label, e.path.generic_string(), e.reason});
   }
+  if (rows.empty())
+    return rex::Ok();
+
+  ui::PlanTable(
+      fmt::format("Migration: {} file(s) will be rewritten before codegen runs.", rows.size()),
+      rows);
+
+  if (force)
+    return rex::Ok();
+  if (!ui::Confirm("Apply migration and continue?")) {
+    return Err<void>(rex::ErrorCategory::UserAbort, "Upgrade declined; codegen aborted.");
+  }
+  return rex::Ok();
 }
 
-/**
- * Run the per-project scanners (drift, include rewrites, identifier renames)
- * and return their combined findings. Each branch of CodegenFromConfig calls
- * this with the appropriate project_dir; it lets us add new scanners in one
- * place rather than threading them through three sites.
- */
-MigrationFindings BuildProjectMigrationPlan(const fs::path& project_dir,
-                                            std::string_view project_name,
-                                            std::string_view sdk_version,
-                                            std::string_view entrypoint_out_dir) {
+void EmitManualReview(std::span<const MigrationWarning> warnings, std::string_view header) {
+  if (warnings.empty())
+    return;
+  std::vector<ui::ManualReviewRow> rows;
+  rows.reserve(warnings.size());
+  for (const auto& w : warnings) {
+    rows.push_back(
+        {fmt::format("{}:{}", w.file.generic_string(), w.line_number), w.detail, w.hint});
+  }
+  ui::ManualReviewList(std::string(header), rows);
+}
+
+MigrationFindings ScanProjectMigrations(const fs::path& project_dir, std::string_view project_name,
+                                        std::string_view sdk_version,
+                                        std::string_view entrypoint_out_dir) {
   MigrationFindings out;
-  auto drift = ScanSdkTemplateDrift(project_dir, project_name, sdk_version, entrypoint_out_dir);
-  out.rewrites.insert(out.rewrites.end(), std::make_move_iterator(drift.begin()),
-                      std::make_move_iterator(drift.end()));
-  auto include_rewrites = ScanSourceIncludeRewrites(project_dir, project_name);
-  out.rewrites.insert(out.rewrites.end(), std::make_move_iterator(include_rewrites.begin()),
-                      std::make_move_iterator(include_rewrites.end()));
+  auto add_rewrites = [&](std::vector<OverwriteEntry> entries) {
+    out.rewrites.insert(out.rewrites.end(), std::make_move_iterator(entries.begin()),
+                        std::make_move_iterator(entries.end()));
+  };
+  auto add_warnings = [&](std::vector<MigrationWarning> entries) {
+    out.warnings.insert(out.warnings.end(), std::make_move_iterator(entries.begin()),
+                        std::make_move_iterator(entries.end()));
+  };
+
+  add_rewrites(ScanSdkTemplateDrift(project_dir, project_name, sdk_version, entrypoint_out_dir));
+  add_rewrites(ScanSourceIncludeRewrites(project_dir, project_name));
   auto idents = ScanLegacyIdentifiers(project_dir);
-  out.rewrites.insert(out.rewrites.end(), std::make_move_iterator(idents.rewrites.begin()),
-                      std::make_move_iterator(idents.rewrites.end()));
-  out.warnings.insert(out.warnings.end(), std::make_move_iterator(idents.warnings.begin()),
-                      std::make_move_iterator(idents.warnings.end()));
-  auto callsite_warnings = ScanCallSitePatterns(project_dir);
-  out.warnings.insert(out.warnings.end(), std::make_move_iterator(callsite_warnings.begin()),
-                      std::make_move_iterator(callsite_warnings.end()));
+  add_rewrites(std::move(idents.rewrites));
+  add_warnings(std::move(idents.warnings));
+  add_warnings(ScanCallSitePatterns(project_dir));
   return out;
 }
 
-void RunStaleIncludeScan(const fs::path& manifest_path,
+void ReportStaleIncludes(const fs::path& manifest_path,
                          const rex::codegen::ProjectRecompiler& recompiler) {
   std::unordered_set<std::string> written(recompiler.writtenFiles().begin(),
                                           recompiler.writtenFiles().end());
@@ -458,29 +165,76 @@ void RunStaleIncludeScan(const fs::path& manifest_path,
     return;
 
   auto matches = ScanStaleIncludes(manifest_path.parent_path() / "src", removed);
-  EmitWarnings(matches,
-               fmt::format("{} source file(s) reference headers no longer emitted by codegen:",
-                           matches.size()));
+  EmitManualReview(matches,
+                   fmt::format("{} source file(s) reference headers no longer emitted by codegen:",
+                               matches.size()));
 }
 
-Result<void> RunManifest(const fs::path& manifest_path, const CliContext& ctx) {
+Result<void> RecompileProject(const fs::path& manifest_path, const CliContext& ctx,
+                              const std::vector<std::string>& targets) {
   auto manifest = rex::codegen::ManifestConfig::Load(manifest_path);
   if (!manifest) {
     return Err<void>(rex::ErrorCategory::Config, "Failed to load manifest");
   }
+  std::string title = fmt::format("Recompiling {}", manifest->projectName);
   rex::codegen::ProjectRecompiler recompiler(std::move(*manifest));
+  ui::ProgressView progress(title);
   rex::codegen::ProjectRecompilerOptions opts{
-      .targets = ctx.targets,
+      .targets = targets,
       .force = ctx.generate_despite_errors,
-      .enableExceptionHandlers = ctx.enableExceptionHandlers,
+      .reporter = &progress,
   };
   auto result = recompiler.Run(opts);
   if (!result)
     return result;
 
-  RunStaleIncludeScan(manifest_path, recompiler);
+  ReportStaleIncludes(manifest_path, recompiler);
   return rex::Ok();
 }
+
+struct ManifestSummary {
+  std::string project_name;
+  std::string sdk_version;
+  std::string entrypoint_out_dir;
+  std::size_t module_count = 0;
+};
+
+rex::Result<ManifestSummary> LoadManifestSummary(const fs::path& manifest_path) {
+  auto manifest = rex::codegen::ManifestConfig::Load(manifest_path);
+  if (!manifest) {
+    return Err<ManifestSummary>(rex::ErrorCategory::Config, "Failed to load manifest");
+  }
+  return rex::Ok(ManifestSummary{
+      .project_name = manifest->projectName,
+      .sdk_version = manifest->sdkVersion.value_or(""),
+      .entrypoint_out_dir = manifest->entrypoint.recompiler.outDirectoryPath,
+      .module_count = manifest->modules.size(),
+  });
+}
+
+void EmitProjectHeader(const fs::path& manifest_path, const ManifestSummary& summary) {
+  std::vector<ui::KeyValueRow> rows;
+  rows.push_back({"Manifest", manifest_path.generic_string()});
+  if (!summary.project_name.empty()) {
+    rows.push_back({"Project", summary.project_name});
+  }
+  if (summary.module_count > 0) {
+    rows.push_back({"Modules", fmt::format("{} DLL{}", summary.module_count,
+                                           summary.module_count == 1 ? "" : "s")});
+  }
+  if (!summary.sdk_version.empty()) {
+    rows.push_back({"SDK", fmt::format("{} (project last generated by {})", REXGLUE_VERSION_STRING,
+                                       summary.sdk_version)});
+  } else {
+    rows.push_back({"SDK", REXGLUE_VERSION_STRING});
+  }
+  ui::KeyValueBlock("", rows);
+}
+
+struct CodegenArgs {
+  std::string config_path;
+  std::vector<std::string> targets;
+};
 
 }  // namespace
 
@@ -509,17 +263,15 @@ Result<std::string> DiscoverManifestInCwd() {
     }
   }
 
-  if (manifests.size() == 1) {
+  if (manifests.size() == 1)
     return rex::Ok(manifests.front().string());
-  }
   if (manifests.size() > 1) {
     return Err<std::string>(
         rex::ErrorCategory::Config,
         fmt::format("Multiple *_manifest.toml files in {}; pass one explicitly", cwd.string()));
   }
-  if (other_tomls.size() == 1) {
+  if (other_tomls.size() == 1)
     return rex::Ok(other_tomls.front().string());
-  }
   if (other_tomls.size() > 1) {
     return Err<std::string>(
         rex::ErrorCategory::Config,
@@ -529,30 +281,9 @@ Result<std::string> DiscoverManifestInCwd() {
                           fmt::format("No manifest .toml found in {}", cwd.string()));
 }
 
-Result<void> CodegenFromConfig(const std::string& config_path, const CliContext& ctx) {
-  REXLOG_INFO("Generating code with config: {}", config_path);
-
-  fs::path manifest_path;
-  std::string from_version;
-  std::string project_name;
-
-  // pre_plan runs before codegen; post_plan only on codegen success so a
-  // failure doesn't leave the project half-migrated.
-  std::vector<OverwriteEntry> pre_plan;
-  std::vector<OverwriteEntry> post_plan;
-  std::vector<MigrationWarning> pending_warnings;
-  bool fresh_absorb = false;
-
-  auto absorb_findings = [&](MigrationFindings findings) {
-    post_plan.insert(post_plan.end(), std::make_move_iterator(findings.rewrites.begin()),
-                     std::make_move_iterator(findings.rewrites.end()));
-    pending_warnings.insert(pending_warnings.end(),
-                            std::make_move_iterator(findings.warnings.begin()),
-                            std::make_move_iterator(findings.warnings.end()));
-  };
-
-  const std::string current_version = REXGLUE_VERSION_NUMERIC;
-  std::string entrypoint_out_dir;
+Result<void> CodegenFromConfig(const std::string& config_path, const CliContext& ctx,
+                               const std::vector<std::string>& targets) {
+  REXLOG_TRACE("Generating code with config: {}", config_path);
 
   toml::table parsed_tbl;
   try {
@@ -562,50 +293,59 @@ Result<void> CodegenFromConfig(const std::string& config_path, const CliContext&
                      fmt::format("Failed to parse {}: {}", config_path, err.what()));
   }
 
+  std::vector<OverwriteEntry> pre_plan;
+  std::vector<OverwriteEntry> post_plan;
+  std::vector<MigrationWarning> warnings;
+  bool from_legacy = false;
+
+  fs::path manifest_path;
+  ManifestSummary summary;
+  const std::string current_version = REXGLUE_VERSION_NUMERIC;
+
+  auto append_findings = [&](MigrationFindings findings) {
+    post_plan.insert(post_plan.end(), std::make_move_iterator(findings.rewrites.begin()),
+                     std::make_move_iterator(findings.rewrites.end()));
+    warnings.insert(warnings.end(), std::make_move_iterator(findings.warnings.begin()),
+                    std::make_move_iterator(findings.warnings.end()));
+  };
+
   if (parsed_tbl.contains("project")) {
     manifest_path = config_path;
-    auto manifest = rex::codegen::ManifestConfig::Load(manifest_path);
-    if (!manifest) {
-      return Err<void>(rex::ErrorCategory::Config, "Failed to load manifest");
-    }
-    project_name = manifest->projectName;
-    from_version = manifest->sdkVersion.value_or("");
-    entrypoint_out_dir = manifest->entrypoint.recompiler.outDirectoryPath;
-
-    absorb_findings(BuildProjectMigrationPlan(manifest->manifestDir, project_name, current_version,
-                                              entrypoint_out_dir));
+    auto loaded = LoadManifestSummary(manifest_path);
+    if (!loaded)
+      return Err<void>(loaded.error());
+    summary = std::move(*loaded);
+    append_findings(ScanProjectMigrations(manifest_path.parent_path(), summary.project_name,
+                                          current_version, summary.entrypoint_out_dir));
   } else {
     fs::path legacy_path = config_path;
-    auto absorbed = AbsorbLegacyConfig(legacy_path);
-    if (!absorbed) {
-      return Err<void>(rex::ErrorCategory::Config,
-                       fmt::format("Cannot absorb legacy config {}: missing required fields "
-                                   "(project_name / file_path)",
-                                   legacy_path.string()));
+    auto converted = ConvertLegacyConfig(legacy_path);
+    if (!converted) {
+      return Err<void>(
+          rex::ErrorCategory::Config,
+          fmt::format("Cannot convert legacy config {}: missing project_name or file_path",
+                      legacy_path.string()));
     }
-
-    manifest_path = absorbed->manifest_path;
-    project_name = absorbed->project_name;
-    entrypoint_out_dir = absorbed->out_directory_path;
+    manifest_path = converted->manifest_path;
+    summary.project_name = converted->project_name;
+    summary.entrypoint_out_dir = converted->out_directory_path;
 
     if (fs::exists(manifest_path)) {
       REXLOG_WARN("Both {} and {} exist; using the manifest. Remove the legacy file when ready.",
                   manifest_path.filename().string(), legacy_path.filename().string());
-      auto manifest = rex::codegen::ManifestConfig::Load(manifest_path);
-      if (!manifest) {
-        return Err<void>(rex::ErrorCategory::Config, "Failed to load manifest");
-      }
-      from_version = manifest->sdkVersion.value_or("");
-      entrypoint_out_dir = manifest->entrypoint.recompiler.outDirectoryPath;
-      absorb_findings(BuildProjectMigrationPlan(manifest->manifestDir, project_name,
-                                                current_version, entrypoint_out_dir));
+      auto loaded = LoadManifestSummary(manifest_path);
+      if (!loaded)
+        return Err<void>(loaded.error());
+      summary = std::move(*loaded);
+      append_findings(ScanProjectMigrations(manifest_path.parent_path(), summary.project_name,
+                                            current_version, summary.entrypoint_out_dir));
     } else {
-      fresh_absorb = true;
-      pre_plan.push_back({manifest_path, std::move(absorbed->manifest_content),
+      from_legacy = true;
+      pre_plan.push_back({manifest_path, std::move(converted->manifest_content),
                           OverwriteAction::Write, /*silent=*/false,
                           fmt::format("upgrade format to v{}", current_version)});
-      if (!absorbed->stripped_legacy_content.empty()) {
-        post_plan.push_back({legacy_path, std::move(absorbed->stripped_legacy_content),
+      if (!converted->stripped_legacy_content.empty()) {
+        post_plan.push_back({legacy_path, std::move(converted->stripped_legacy_content),
                              OverwriteAction::Write, /*silent=*/false,
                              "strip absorbed fields (kept as include target)"});
       } else {
@@ -619,30 +359,25 @@ Result<void> CodegenFromConfig(const std::string& config_path, const CliContext&
       post_plan.insert(post_plan.end(), std::make_move_iterator(cmake_rewrites.begin()),
                        std::make_move_iterator(cmake_rewrites.end()));
 
-      absorb_findings(BuildProjectMigrationPlan(legacy_path.parent_path(), project_name,
-                                                current_version, entrypoint_out_dir));
+      append_findings(ScanProjectMigrations(legacy_path.parent_path(), summary.project_name,
+                                            current_version, summary.entrypoint_out_dir));
     }
   }
 
-  EmitWarnings(pending_warnings,
-               fmt::format("{} site(s) need manual review (no safe auto-rewrite):",
-                           pending_warnings.size()));
+  EmitProjectHeader(manifest_path, summary);
+  EmitManualReview(warnings,
+                   fmt::format("Migration: {} site(s) need manual review:", warnings.size()));
 
-  std::vector<OverwriteEntry> consent_view;
-  consent_view.insert(consent_view.end(), pre_plan.begin(), pre_plan.end());
+  std::vector<OverwriteEntry> consent_view = pre_plan;
   consent_view.insert(consent_view.end(), post_plan.begin(), post_plan.end());
-  auto consent =
-      PromptConsent(consent_view, from_version, current_version, ctx.skip_upgrade_consent);
-  if (!consent)
+  if (auto consent = PromptConsent(consent_view, ctx.skip_upgrade_consent); !consent)
     return consent;
 
-  auto pre_applied = ApplyPlanEntries(pre_plan);
-  if (!pre_applied)
-    return pre_applied;
+  if (auto applied = ApplyPlan(pre_plan); !applied)
+    return applied;
 
-  auto run_result = RunManifest(manifest_path, ctx);
-  if (!run_result) {
-    if (fresh_absorb) {
+  if (auto run_result = RecompileProject(manifest_path, ctx, targets); !run_result) {
+    if (from_legacy) {
       std::error_code ec;
       fs::remove(manifest_path, ec);
       REXLOG_ERROR("Codegen failed; manifest write rolled back. Legacy config is unchanged.");
@@ -650,15 +385,38 @@ Result<void> CodegenFromConfig(const std::string& config_path, const CliContext&
     return run_result;
   }
 
-  auto post_applied = ApplyPlanEntries(post_plan);
-  if (!post_applied)
-    return post_applied;
+  if (auto applied = ApplyPlan(post_plan); !applied)
+    return applied;
 
   if (!rex::codegen::ManifestConfig::WriteSdkVersionStamp(manifest_path, current_version)) {
     REXLOG_WARN("Failed to stamp manifest sdkVersion; next run may re-prompt");
   }
-
   return rex::Ok();
+}
+
+void RegisterCodegen(CLI::App& parent, const CliContext& ctx, DeferredAction& pending) {
+  auto args = std::make_shared<CodegenArgs>();
+  auto* sub = parent.add_subcommand("codegen", "Analyze and generate C++ code")->fallthrough();
+  sub->add_option("config", args->config_path,
+                  "Path to manifest TOML (auto-discovered in cwd if omitted)")
+      ->type_name("PATH");
+  sub->add_option("--target", args->targets,
+                  "DLL target to build (repeatable; entrypoint always included)")
+      ->type_name("NAME")
+      ->take_all();
+
+  sub->callback([args, &ctx, &pending]() {
+    pending = [args, &ctx]() -> Result<void> {
+      std::string path = args->config_path;
+      if (path.empty()) {
+        auto discovered = DiscoverManifestInCwd();
+        if (!discovered)
+          return Err<void>(discovered.error());
+        path = *discovered;
+      }
+      return CodegenFromConfig(path, ctx, args->targets);
+    };
+  });
 }
 
 }  // namespace rexglue::cli

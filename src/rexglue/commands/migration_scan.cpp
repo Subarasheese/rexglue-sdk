@@ -58,9 +58,6 @@ bool IsUnderGeneratedTree(const fs::path& project_root, const fs::path& target) 
   return first != rel.end() && first->generic_string() == "generated";
 }
 
-// Walk every regular file under `project_root` matching `accept`, skipping the
-// SDK-owned `generated/` tree. Used by every scanner that operates on
-// hand-written sources.
 template <typename Accept, typename Visit>
 void WalkProjectFiles(const fs::path& project_root, Accept accept, Visit visit) {
   std::error_code ec;
@@ -86,9 +83,6 @@ void WalkProjectFiles(const fs::path& project_root, Accept accept, Visit visit) 
   }
 }
 
-// True iff `c` can appear inside a path token in cmake. Used to anchor the
-// legacy-filename rewrite at filename boundaries (e.g. .bak suffix is left
-// alone).
 bool IsPathTokenChar(char c) {
   unsigned char uc = static_cast<unsigned char>(c);
   return std::isalnum(uc) != 0 || c == '_' || c == '-' || c == '.' || c == '/' || c == '\\';
@@ -131,71 +125,56 @@ std::string ExtractIncludeBasename(std::string_view target) {
 }
 
 constexpr std::array<BreakingChangeRule, 47> kRules = {{
-    {"PPC_HOOK", "REX_HOOK", "renamed: PPC_HOOK -> REX_HOOK"},
-    {"PPC_STUB", "REX_STUB", "renamed: PPC_STUB -> REX_STUB"},
-    {"PPC_STUB_LOG", "REX_STUB_LOG", "renamed: PPC_STUB_LOG -> REX_STUB_LOG"},
-    {"PPC_STUB_RETURN", "REX_STUB_RETURN", "renamed: PPC_STUB_RETURN -> REX_STUB_RETURN"},
-    {"PPC_FUNC", "REX_FUNC", "renamed: PPC_FUNC -> REX_FUNC"},
-    {"PPC_WEAK_FUNC", "REX_WEAK_FUNC", "renamed: PPC_WEAK_FUNC -> REX_WEAK_FUNC"},
+    {"PPC_HOOK", "REX_HOOK", ""},
+    {"PPC_STUB", "REX_STUB", ""},
+    {"PPC_STUB_LOG", "REX_STUB_LOG", ""},
+    {"PPC_STUB_RETURN", "REX_STUB_RETURN", ""},
+    {"PPC_FUNC", "REX_FUNC", ""},
+    {"PPC_WEAK_FUNC", "REX_WEAK_FUNC", ""},
     {"PPC_FUNC_IMPL", "REX_EXTERN", "PPC_FUNC_IMPL was extern \"C\" PPC_FUNC; use REX_EXTERN"},
     {"PPC_EXTERN_IMPORT", "REX_EXTERN",
      "PPC_EXTERN_IMPORT was extern \"C\" PPC_FUNC; use REX_EXTERN"},
-    {"PPC_EXTERN_FUNC", "",
-     "removed; declare with `extern REX_FUNC(name)` (no REX equivalent macro)"},
-    {"PPC_JOIN", "REX_JOIN", "renamed: PPC_JOIN -> REX_JOIN"},
-    {"PPC_XSTRINGIFY", "REX_XSTRINGIFY", "renamed: PPC_XSTRINGIFY -> REX_XSTRINGIFY"},
-    {"PPC_STRINGIFY", "REX_STRINGIFY", "renamed: PPC_STRINGIFY -> REX_STRINGIFY"},
-    {"PPC_ROUND_NEAREST", "rex::ppc::kRoundNearest",
-     "renamed: PPC_ROUND_NEAREST -> rex::ppc::kRoundNearest"},
-    {"PPC_ROUND_TOWARD_ZERO", "rex::ppc::kRoundTowardZero",
-     "renamed: PPC_ROUND_TOWARD_ZERO -> rex::ppc::kRoundTowardZero"},
-    {"PPC_ROUND_UP", "rex::ppc::kRoundUp", "renamed: PPC_ROUND_UP -> rex::ppc::kRoundUp"},
-    {"PPC_ROUND_DOWN", "rex::ppc::kRoundDown", "renamed: PPC_ROUND_DOWN -> rex::ppc::kRoundDown"},
-    {"PPC_ROUND_MASK", "rex::ppc::kRoundMask", "renamed: PPC_ROUND_MASK -> rex::ppc::kRoundMask"},
-    {"PPC_CONFIG_NON_ARGUMENT_AS_LOCAL", "REX_CONFIG_NON_ARGUMENT_AS_LOCAL",
-     "renamed: PPC_CONFIG_* -> REX_CONFIG_*"},
-    {"PPC_CONFIG_NON_VOLATILE_AS_LOCAL", "REX_CONFIG_NON_VOLATILE_AS_LOCAL",
-     "renamed: PPC_CONFIG_* -> REX_CONFIG_*"},
-    {"PPC_CONFIG_SKIP_LR", "REX_CONFIG_SKIP_LR", "renamed: PPC_CONFIG_* -> REX_CONFIG_*"},
-    {"PPC_CONFIG_CTR_AS_LOCAL", "REX_CONFIG_CTR_AS_LOCAL", "renamed: PPC_CONFIG_* -> REX_CONFIG_*"},
-    {"PPC_CONFIG_XER_AS_LOCAL", "REX_CONFIG_XER_AS_LOCAL", "renamed: PPC_CONFIG_* -> REX_CONFIG_*"},
-    {"PPC_CONFIG_RESERVED_AS_LOCAL", "REX_CONFIG_RESERVED_AS_LOCAL",
-     "renamed: PPC_CONFIG_* -> REX_CONFIG_*"},
-    {"PPC_CONFIG_SKIP_MSR", "REX_CONFIG_SKIP_MSR", "renamed: PPC_CONFIG_* -> REX_CONFIG_*"},
-    {"PPC_CONFIG_CR_AS_LOCAL", "REX_CONFIG_CR_AS_LOCAL", "renamed: PPC_CONFIG_* -> REX_CONFIG_*"},
-    {"PPC_FUNC_PROLOGUE", "REX_FUNC_PROLOGUE", "renamed: PPC_FUNC_PROLOGUE -> REX_FUNC_PROLOGUE"},
-    {"PPC_CALL_FUNC", "REX_CALL_FUNC", "renamed: PPC_CALL_FUNC -> REX_CALL_FUNC"},
-    {"PPC_LOOKUP_FUNC", "REX_LOOKUP_FUNC", "renamed: PPC_LOOKUP_FUNC -> REX_LOOKUP_FUNC"},
-    {"PPC_CALL_INDIRECT_FUNC", "REX_CALL_INDIRECT_FUNC",
-     "renamed: PPC_CALL_INDIRECT_FUNC -> REX_CALL_INDIRECT_FUNC"},
-    {"PPC_SET_FLUSH_MODE", "REX_SET_FLUSH_MODE",
-     "renamed: PPC_SET_FLUSH_MODE -> REX_SET_FLUSH_MODE"},
-    {"PPC_UNIMPLEMENTED", "REX_UNIMPLEMENTED", "renamed: PPC_UNIMPLEMENTED -> REX_UNIMPLEMENTED"},
-    {"PPC_QUERY_TIMEBASE", "REX_QUERY_TIMEBASE",
-     "renamed: PPC_QUERY_TIMEBASE -> REX_QUERY_TIMEBASE"},
-    {"PPC_CHECK_GLOBAL_LOCK", "REX_CHECK_GLOBAL_LOCK",
-     "renamed: PPC_CHECK_GLOBAL_LOCK -> REX_CHECK_GLOBAL_LOCK"},
-    {"PPC_ENTER_GLOBAL_LOCK", "REX_ENTER_GLOBAL_LOCK",
-     "renamed: PPC_ENTER_GLOBAL_LOCK -> REX_ENTER_GLOBAL_LOCK"},
-    {"PPC_LEAVE_GLOBAL_LOCK", "REX_LEAVE_GLOBAL_LOCK",
-     "renamed: PPC_LEAVE_GLOBAL_LOCK -> REX_LEAVE_GLOBAL_LOCK"},
-    {"PPC_PHYS_HOST_OFFSET", "REX_PHYS_HOST_OFFSET",
-     "renamed: PPC_PHYS_HOST_OFFSET -> REX_PHYS_HOST_OFFSET"},
-    {"PPC_RAW_ADDR", "REX_RAW_ADDR", "renamed: PPC_RAW_ADDR -> REX_RAW_ADDR"},
-    {"PPC_LOAD_U8", "REX_LOAD_U8", "renamed: PPC_LOAD_U8 -> REX_LOAD_U8"},
-    {"PPC_LOAD_U16", "REX_LOAD_U16", "renamed: PPC_LOAD_U16 -> REX_LOAD_U16"},
-    {"PPC_LOAD_U32", "REX_LOAD_U32", "renamed: PPC_LOAD_U32 -> REX_LOAD_U32"},
-    {"PPC_LOAD_U64", "REX_LOAD_U64", "renamed: PPC_LOAD_U64 -> REX_LOAD_U64"},
-    {"PPC_LOAD_STRING", "REX_LOAD_STRING", "renamed: PPC_LOAD_STRING -> REX_LOAD_STRING"},
-    {"PPC_STORE_U8", "REX_STORE_U8", "renamed: PPC_STORE_U8 -> REX_STORE_U8"},
-    {"PPC_STORE_U16", "REX_STORE_U16", "renamed: PPC_STORE_U16 -> REX_STORE_U16"},
-    {"PPC_STORE_U32", "REX_STORE_U32", "renamed: PPC_STORE_U32 -> REX_STORE_U32"},
-    {"PPC_STORE_U64", "REX_STORE_U64", "renamed: PPC_STORE_U64 -> REX_STORE_U64"},
-    {"PPC_MEMORY_SIZE", "REX_MEMORY_SIZE", "renamed: PPC_MEMORY_SIZE -> REX_MEMORY_SIZE"},
+    {"PPC_EXTERN_FUNC", "", "removed; declare with extern REX_FUNC(name)"},
+    {"PPC_JOIN", "REX_JOIN", ""},
+    {"PPC_XSTRINGIFY", "REX_XSTRINGIFY", ""},
+    {"PPC_STRINGIFY", "REX_STRINGIFY", ""},
+    {"PPC_ROUND_NEAREST", "rex::ppc::kRoundNearest", ""},
+    {"PPC_ROUND_TOWARD_ZERO", "rex::ppc::kRoundTowardZero", ""},
+    {"PPC_ROUND_UP", "rex::ppc::kRoundUp", ""},
+    {"PPC_ROUND_DOWN", "rex::ppc::kRoundDown", ""},
+    {"PPC_ROUND_MASK", "rex::ppc::kRoundMask", ""},
+    {"PPC_CONFIG_NON_ARGUMENT_AS_LOCAL", "REX_CONFIG_NON_ARGUMENT_AS_LOCAL", ""},
+    {"PPC_CONFIG_NON_VOLATILE_AS_LOCAL", "REX_CONFIG_NON_VOLATILE_AS_LOCAL", ""},
+    {"PPC_CONFIG_SKIP_LR", "REX_CONFIG_SKIP_LR", ""},
+    {"PPC_CONFIG_CTR_AS_LOCAL", "REX_CONFIG_CTR_AS_LOCAL", ""},
+    {"PPC_CONFIG_XER_AS_LOCAL", "REX_CONFIG_XER_AS_LOCAL", ""},
+    {"PPC_CONFIG_RESERVED_AS_LOCAL", "REX_CONFIG_RESERVED_AS_LOCAL", ""},
+    {"PPC_CONFIG_SKIP_MSR", "REX_CONFIG_SKIP_MSR", ""},
+    {"PPC_CONFIG_CR_AS_LOCAL", "REX_CONFIG_CR_AS_LOCAL", ""},
+    {"PPC_FUNC_PROLOGUE", "REX_FUNC_PROLOGUE", ""},
+    {"PPC_CALL_FUNC", "REX_CALL_FUNC", ""},
+    {"PPC_LOOKUP_FUNC", "REX_LOOKUP_FUNC", ""},
+    {"PPC_CALL_INDIRECT_FUNC", "REX_CALL_INDIRECT_FUNC", ""},
+    {"PPC_SET_FLUSH_MODE", "REX_SET_FLUSH_MODE", ""},
+    {"PPC_UNIMPLEMENTED", "REX_UNIMPLEMENTED", ""},
+    {"PPC_QUERY_TIMEBASE", "REX_QUERY_TIMEBASE", ""},
+    {"PPC_CHECK_GLOBAL_LOCK", "REX_CHECK_GLOBAL_LOCK", ""},
+    {"PPC_ENTER_GLOBAL_LOCK", "REX_ENTER_GLOBAL_LOCK", ""},
+    {"PPC_LEAVE_GLOBAL_LOCK", "REX_LEAVE_GLOBAL_LOCK", ""},
+    {"PPC_PHYS_HOST_OFFSET", "REX_PHYS_HOST_OFFSET", ""},
+    {"PPC_RAW_ADDR", "REX_RAW_ADDR", ""},
+    {"PPC_LOAD_U8", "REX_LOAD_U8", ""},
+    {"PPC_LOAD_U16", "REX_LOAD_U16", ""},
+    {"PPC_LOAD_U32", "REX_LOAD_U32", ""},
+    {"PPC_LOAD_U64", "REX_LOAD_U64", ""},
+    {"PPC_LOAD_STRING", "REX_LOAD_STRING", ""},
+    {"PPC_STORE_U8", "REX_STORE_U8", ""},
+    {"PPC_STORE_U16", "REX_STORE_U16", ""},
+    {"PPC_STORE_U32", "REX_STORE_U32", ""},
+    {"PPC_STORE_U64", "REX_STORE_U64", ""},
+    {"PPC_MEMORY_SIZE", "REX_MEMORY_SIZE", ""},
 }};
 
-// True iff `line` contains an `AllocateThunk(...)` call with exactly one
-// top-level argument, i.e. the pre-arity-change form.
 bool ConfirmSingleArgAllocateThunk(std::string_view line) {
   auto name_pos = line.find("AllocateThunk");
   if (name_pos == std::string_view::npos)
@@ -219,19 +198,13 @@ bool ConfirmSingleArgAllocateThunk(std::string_view line) {
       any_arg = true;
     }
   }
-  // Unmatched parens (multi-line call): skip rather than guess.
   return false;
 }
 
 constexpr std::array<CallSiteRule, 2> kCallSiteRules = {{
-    {"GetArgument(\"game_directory\")", "uses removed positional argument 'game_directory'",
-     "the positional was removed; this expression is now permanently nullopt. "
-     "Read REXCVAR_GET(game_data_root) instead, or rely on "
-     "defaults.game_data_root which the SDK already populates.",
+    {"GetArgument(\"game_directory\")", "removed positional argument 'game_directory'", "",
      nullptr},
-    {"AllocateThunk(", "single-arg AllocateThunk(...) call",
-     "AllocateThunk now takes (PPCFunc*, caller_address); pass the caller's "
-     "effective address (e.g. ctx.lr) as the second argument.",
+    {"AllocateThunk(", "single-arg AllocateThunk call", "second arg is now caller_address",
      ConfirmSingleArgAllocateThunk},
 }};
 
@@ -247,9 +220,15 @@ RuleIndex BuildRuleIndex(std::span<const BreakingChangeRule> rules) {
   return idx;
 }
 
+std::string RenameReason(const BreakingChangeRule& rule) {
+  if (!rule.reason.empty())
+    return std::string(rule.reason);
+  return fmt::format("renamed: {} -> {}", rule.legacy_token, rule.replacement);
+}
+
 struct IdentifierScanResult {
   std::string content;
-  std::set<std::string_view> applied_reasons;  // unique rule reasons that fired
+  std::set<std::string> applied_reasons;
 };
 
 IdentifierScanResult ApplyIdentifierRules(const fs::path& path, std::string_view content,
@@ -287,7 +266,7 @@ IdentifierScanResult ApplyIdentifierRules(const fs::path& path, std::string_view
     const BreakingChangeRule& rule = *it->second;
     if (!rule.replacement.empty()) {
       result.content.append(rule.replacement);
-      result.applied_reasons.insert(rule.reason);
+      result.applied_reasons.insert(RenameReason(rule));
       continue;
     }
     result.content.append(tok);
@@ -303,16 +282,16 @@ IdentifierScanResult ApplyIdentifierRules(const fs::path& path, std::string_view
   return result;
 }
 
-std::string SummarizeRenames(const std::set<std::string_view>& reasons) {
+std::string SummarizeRenames(const std::set<std::string>& reasons) {
   static constexpr std::size_t kMaxListed = 3;
   std::string out;
   std::size_t i = 0;
-  for (auto reason : reasons) {
+  for (const auto& reason : reasons) {
     if (i == kMaxListed)
       break;
     if (i > 0)
       out += '\n';
-    out.append(reason);
+    out += reason;
     ++i;
   }
   if (reasons.size() > kMaxListed)

@@ -147,7 +147,7 @@ void TemplateRegistry::loadOverrides(const std::filesystem::path& dir) {
       }();
       auto tmpl = impl_->env_.parse(content);
       impl_->overrides_[id] = std::move(tmpl);
-      REXCODEGEN_INFO("Loaded template override: {} -> {}", id, entry.path().string());
+      REXCODEGEN_TRACE("Loaded template override: {} -> {}", id, entry.path().string());
     } catch (const std::exception& e) {
       throw TemplateError(id, e.what(), entry.path().string());
     }

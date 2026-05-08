@@ -17,10 +17,13 @@ add_executable(unit_tests
     system/function_dispatcher_test.cpp
     codegen/manifest_test.cpp
     rexglue/migration_scan_test.cpp
+    rexglue/ui_test.cpp
 )
 
 target_sources(unit_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/src/rexglue/commands/migration_scan.cpp
+    ${PROJECT_SOURCE_DIR}/src/rexglue/ui/ui.cpp
+    ${PROJECT_SOURCE_DIR}/src/rexglue/ui/progress.cpp
 )
 
 target_include_directories(unit_tests PRIVATE

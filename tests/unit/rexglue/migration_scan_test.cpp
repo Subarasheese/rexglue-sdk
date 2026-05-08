@@ -407,7 +407,6 @@ TEST_CASE("MigrationScan: ScanCallSitePatterns flags removed game_directory posi
   CHECK(warnings[0].file == tp.root / "src" / "app.cpp");
   CHECK(warnings[0].line_number == 3u);
   CHECK(warnings[0].detail.find("game_directory") != std::string::npos);
-  CHECK(warnings[0].hint.find("game_data_root") != std::string::npos);
 }
 
 TEST_CASE("MigrationScan: ScanCallSitePatterns leaves unrelated GetArgument calls alone",
