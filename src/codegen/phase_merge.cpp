@@ -75,7 +75,7 @@ void mergeAndSeal(CodegenContext& ctx) {
                    totalSealed, graph.functionCount());
 
   if (stillPending > 0) {
-    REXCODEGEN_WARN("Analyze: {} functions still PENDING with unresolved jumps", stillPending);
+    REXCODEGEN_DEBUG("Analyze: {} functions still PENDING with unresolved jumps", stillPending);
   }
 }
 
