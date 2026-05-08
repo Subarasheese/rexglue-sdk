@@ -91,7 +91,7 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
 
  protected:
   ReXApp(ui::WindowedAppContext& ctx, std::string_view name, PPCImageInfo ppc_info,
-         std::string_view usage = "[game_directory]");
+         std::string_view usage = "");
 
   // --- Virtual hooks for customization ---
 

@@ -49,9 +49,7 @@ ReXApp::~ReXApp() = default;
 
 ReXApp::ReXApp(ui::WindowedAppContext& ctx, std::string_view name, PPCImageInfo ppc_info,
                std::string_view usage)
-    : WindowedApp(ctx, name, usage), ppc_info_(ppc_info) {
-  AddPositionalOption("game_directory");
-}
+    : WindowedApp(ctx, name, usage), ppc_info_(ppc_info) {}
 
 bool ReXApp::OnInitialize() {
   if (!SetupEnvironment())
@@ -79,12 +77,6 @@ bool ReXApp::SetupEnvironment() {
   std::string game_data_cvar = REXCVAR_GET(game_data_root);
   if (!game_data_cvar.empty()) {
     game_dir = game_data_cvar;
-  } else if (auto arg = GetArgument("game_directory")) {
-    REXLOG_WARN(
-        "Positional 'game_directory' is deprecated; use --game_data_root= or "
-        "set it in {}.toml",
-        GetName());
-    game_dir = *arg;
   } else {
     game_dir = exe_dir / "assets";
   }
@@ -190,9 +182,6 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
     static_cast<rex::input::InputSystem*>(runtime_->input_system())->AttachWindow(window_.get());
   }
 
-  // Register recompiled modules with KernelState (multi-binary projects).
-  // This populates the recompiled_modules_ registry so that LoadUserModule
-  // can match guest paths to shared libraries at runtime.
   if (ppc_info_.register_modules) {
     ppc_info_.register_modules(runtime_->kernel_state());
   }
