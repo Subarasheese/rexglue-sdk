@@ -56,14 +56,17 @@ Runtime::~Runtime() {
 }
 
 X_STATUS Runtime::Setup(RuntimeConfig config) {
-  // Guard against double-Setup. Publish instance_ now so any subsystem that
-  // spawns worker threads during init (audio, dispatch_thread, etc.) sees a
-  // valid Runtime via Runtime::instance().
   if (instance_ != nullptr) {
     REXSYS_ERROR("Runtime::Setup() called but global instance already exists");
     return X_STATUS_UNSUCCESSFUL;
   }
   instance_ = this;
+
+  auto fail = [this](X_STATUS status, std::string_view reason) {
+    REXSYS_ERROR("Runtime::Setup failed: {}", reason);
+    Shutdown();
+    return status;
+  };
 
   // Start profiler (Tracy network threads, counter init)
   rex::perf::Profiler::Startup();
@@ -84,10 +87,7 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
   // Create memory system first
   memory_ = std::make_unique<memory::Memory>();
   if (!memory_->Initialize()) {
-    REXSYS_ERROR("Failed to initialize memory system");
-    memory_.reset();
-    instance_ = nullptr;
-    return X_STATUS_UNSUCCESSFUL;
+    return fail(X_STATUS_UNSUCCESSFUL, "memory init failed");
   }
 
   export_resolver_ = std::make_unique<runtime::ExportResolver>();
@@ -139,9 +139,7 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
 
   // Set up VFS: game_data_root as game:/d:, update_data_root as update:
   if (!SetupVfs()) {
-    REXSYS_ERROR("Failed to set up VFS");
-    instance_ = nullptr;
-    return X_STATUS_UNSUCCESSFUL;
+    return fail(X_STATUS_UNSUCCESSFUL, "VFS setup failed");
   }
 
   // Skip GPU initialization in tool mode (for analysis tools like codegen)
@@ -158,10 +156,7 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
     X_STATUS gpu_status = graphics_system_->Setup(function_dispatcher_.get(), kernel_state_.get(),
                                                   app_context_, with_presentation);
     if (XFAILED(gpu_status)) {
-      REXSYS_ERROR("Failed to initialize GPU - required for runtime");
-      graphics_system_.reset();
-      instance_ = nullptr;
-      return gpu_status;
+      return fail(gpu_status, "GPU setup failed");
     }
     REXSYS_INFO("GPU system initialized (presentation={})", with_presentation);
   } else {
@@ -179,7 +174,6 @@ X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig confi
     return status;
   }
 
-  // Initialize per-module function table in guest memory at IMAGE_BASE + IMAGE_SIZE
   if (!function_dispatcher_->InitializeFunctionTable(image_info.code_base, image_info.code_size,
                                                      image_info.image_base, image_info.image_size,
                                                      /*is_entrypoint=*/true)) {
@@ -191,6 +185,7 @@ X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig confi
   if (image_info.func_mappings) {
     int count = 0;
     int duplicates = 0;
+    int rejected = 0;
     for (int i = 0; image_info.func_mappings[i].guest != 0; ++i) {
       uint32_t guest = static_cast<uint32_t>(image_info.func_mappings[i].guest);
       auto* host = image_info.func_mappings[i].host;
@@ -201,10 +196,19 @@ X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig confi
         REXSYS_WARN("func_mappings: duplicate guest address {:08X}", guest);
         ++duplicates;
       }
-      function_dispatcher_->SetFunction(guest, host);
-      ++count;
+      if (!function_dispatcher_->SetFunction(guest, host)) {
+        ++rejected;
+      } else {
+        ++count;
+      }
     }
-    REXSYS_DEBUG("Registered {} recompiled functions ({} duplicates ignored)", count, duplicates);
+    REXSYS_DEBUG("Registered {} recompiled functions ({} duplicates, {} rejected)", count,
+                 duplicates, rejected);
+    if (rejected > 0) {
+      REXSYS_ERROR("PPCImageInfo registration: {} func_mappings entries rejected", rejected);
+      Shutdown();
+      return X_STATUS_UNSUCCESSFUL;
+    }
   }
 
   REXSYS_DEBUG("Runtime setup complete (code: {:08X}-{:08X}, image: {:08X}-{:08X})",
@@ -214,16 +218,14 @@ X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig confi
 }
 
 void Runtime::Shutdown() {
-  if (!setup_complete_ && instance_ != this) {
+  if (!instance_ && !setup_complete_ && !memory_) {
     return;
   }
 
-  // Clear global instance
   if (instance_ == this) {
     instance_ = nullptr;
   }
 
-  // Destroy in reverse order
   if (graphics_system_) {
     graphics_system_->Shutdown();
     graphics_system_.reset();
