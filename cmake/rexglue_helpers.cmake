@@ -10,13 +10,10 @@
 #==========================================================
 # rexglue_apply_target_settings(<target>) - Common flags
 #
-# Applied to both host apps and guest DLL modules. Does NOT
-# whole-archive any library: rexruntime is SHARED, so all
-# kernel-hook __imp__* symbols are in its export table by
-# definition.
+# Applied to both host apps and guest DLL modules. Compile/link flags only;
+# runtime DLL staging is the host's job (see rexglue_configure_target).
 #==========================================================
 function(rexglue_apply_target_settings target_name)
-    # Linux platform settings
     if(UNIX AND NOT APPLE)
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
@@ -35,31 +32,6 @@ function(rexglue_apply_target_settings target_name)
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
             target_compile_options(${target_name} PRIVATE -msse4.1)
         endif()
-        # ARM64 NEON is enabled via -march=armv8-a above
-    endif()
-
-    # Copy runtime DLLs next to the target on Windows
-    if(WIN32)
-        add_custom_command(TARGET ${target_name} POST_BUILD
-            COMMAND "$<$<BOOL:$<TARGET_RUNTIME_DLLS:${target_name}>>:${CMAKE_COMMAND};-E;copy_if_different;$<TARGET_RUNTIME_DLLS:${target_name}>;$<TARGET_FILE_DIR:${target_name}>>"
-            COMMAND_EXPAND_LISTS
-        )
-        # FidelityFX is linked PRIVATE by rexui (to avoid propagating DLL
-        # requirements to tool-mode targets), so copy its DLLs explicitly.
-        if(TARGET amd_fidelityfx_vk)
-            add_custom_command(TARGET ${target_name} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    $<TARGET_FILE:amd_fidelityfx_vk>
-                    $<TARGET_FILE_DIR:${target_name}>
-            )
-        endif()
-        if(TARGET amd_fidelityfx_dx12)
-            add_custom_command(TARGET ${target_name} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    $<TARGET_FILE:amd_fidelityfx_dx12>
-                    $<TARGET_FILE_DIR:${target_name}>
-            )
-        endif()
     endif()
 endfunction()
 
@@ -69,10 +41,13 @@ endfunction()
 # Adds:
 #   - Platform entry point source (windowed_app_main_*.cpp)
 #   - ReXApp base class source (rex_app.cpp)
+#   - Build-config define for the version stamp
 #   - $ORIGIN RPATH on UNIX so the host finds librexruntime.so next to itself
+#   - Windows POST_BUILD copy of TARGET_RUNTIME_DLLS and the FidelityFX DLLs.
+#     Guest modules colocate with the host (see rexglue_configure_module_target),
+#     so this single copy handles them transitively.
 #==========================================================
 function(rexglue_configure_target target_name)
-    # Platform entry point
     if(WIN32)
         target_sources(${target_name} PRIVATE
             ${REXGLUE_SHARE_DIR}/windowed_app_main_win.cpp)
@@ -81,15 +56,12 @@ function(rexglue_configure_target target_name)
             ${REXGLUE_SHARE_DIR}/windowed_app_main_posix.cpp)
     endif()
 
-    # ReXApp base class
     target_sources(${target_name} PRIVATE
         ${REXGLUE_SHARE_DIR}/rex_app.cpp)
 
-    # Build config for version stamp
     target_compile_definitions(${target_name} PRIVATE
         REXGLUE_BUILD_CONFIG="$<CONFIG>")
 
-    # On UNIX: RPATH $ORIGIN so the host finds librexruntime.so co-located
     if(UNIX AND NOT APPLE)
         set_target_properties(${target_name} PROPERTIES
             INSTALL_RPATH "$ORIGIN"
@@ -98,23 +70,38 @@ function(rexglue_configure_target target_name)
     endif()
 
     rexglue_apply_target_settings(${target_name})
+
+    if(WIN32)
+        # Stage runtime DLLs (rexruntime, TracyClient, etc.) next to the host
+        # binary on every link. copy_if_different is a no-op when up to date.
+        add_custom_command(TARGET ${target_name} POST_BUILD
+            COMMAND "$<$<BOOL:$<TARGET_RUNTIME_DLLS:${target_name}>>:${CMAKE_COMMAND};-E;copy_if_different;$<TARGET_RUNTIME_DLLS:${target_name}>;$<TARGET_FILE_DIR:${target_name}>>"
+            COMMAND_EXPAND_LISTS
+            VERBATIM
+        )
+        # FidelityFX is linked PRIVATE by rexui (to avoid propagating DLL
+        # requirements to tool-mode targets), so copy its DLLs explicitly.
+        foreach(_fx amd_fidelityfx_vk amd_fidelityfx_dx12)
+            if(TARGET ${_fx})
+                add_custom_command(TARGET ${target_name} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        $<TARGET_FILE:${_fx}>
+                        $<TARGET_FILE_DIR:${target_name}>
+                    VERBATIM
+                )
+            endif()
+        endforeach()
+    endif()
 endfunction()
 
 #==========================================================
 # rexglue_configure_module_target(<target> [HOST <host_target>])
 #   - Guest DLL module
 #
-# Adds:
-#   - Output directories matched to the host app's, so the guest DLL is
-#     loadable when the host calls LoadUserModule. Falls back to
-#     CMAKE_RUNTIME_OUTPUT_DIRECTORY if HOST is omitted.
-#   - $ORIGIN RPATH on UNIX so the dlopen'd guest DLL finds librexruntime.so
-#     in the same directory as the host EXE.
-#
-# Intentionally does NOT add app entry sources (WinMain/main) or rex_app.cpp,
-# because guest DLLs are loaded by the host app rather than launched as
-# standalone executables. Linking against rexruntime is wired by the codegen-
-# emitted dll_targets.cmake, not here.
+# Output is colocated with HOST (or CMAKE_RUNTIME_OUTPUT_DIRECTORY) so the
+# host's LoadUserModule finds it; the host is wired to depend on the module
+# so a top-level build of the host pulls in all guest DLLs. No runtime DLL
+# staging here; the host's POST_BUILD copy covers shared dependencies.
 #==========================================================
 function(rexglue_configure_module_target target_name)
     cmake_parse_arguments(ARG "" "HOST" "" ${ARGN})
@@ -125,6 +112,11 @@ function(rexglue_configure_module_target target_name)
             RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:${ARG_HOST}>
             ARCHIVE_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:${ARG_HOST}>
         )
+        # Defer add_dependencies so the host target may be declared after
+        # this module call. Wrapping in EVAL CODE expands the variables now,
+        # which DEFER CALL otherwise treats as literal argument text.
+        cmake_language(EVAL CODE
+            "cmake_language(DEFER CALL add_dependencies ${ARG_HOST} ${target_name})")
     elseif(CMAKE_RUNTIME_OUTPUT_DIRECTORY)
         set_target_properties(${target_name} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
@@ -133,7 +125,6 @@ function(rexglue_configure_module_target target_name)
         )
     endif()
 
-    # On UNIX: RPATH $ORIGIN so the guest DLL finds librexruntime.so co-located
     if(UNIX AND NOT APPLE)
         set_target_properties(${target_name} PROPERTIES
             INSTALL_RPATH "$ORIGIN"
