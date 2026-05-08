@@ -5,8 +5,7 @@ add_executable(rexglue
     commands/codegen_command.cpp
     commands/init_command.cpp
     commands/test_recompiler.cpp
-    commands/upgrade_detect.cpp
-    commands/include_scan.cpp
+    commands/migration_scan.cpp
     commands/upgrade_prompt.cpp
 )
 

@@ -16,7 +16,7 @@
 
 #include <rex/result.h>
 
-#include "upgrade_detect.h"
+#include "migration_scan.h"
 
 namespace rexglue::cli {
 

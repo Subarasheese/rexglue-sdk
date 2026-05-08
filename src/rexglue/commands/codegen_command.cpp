@@ -10,16 +10,15 @@
  */
 
 #include "codegen_command.h"
-#include "include_scan.h"
+#include "migration_scan.h"
 #include "template_utils.h"
-#include "upgrade_detect.h"
 #include "upgrade_prompt.h"
 
 #include <array>
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <sstream>
+#include <span>
 #include <string_view>
 #include <unordered_set>
 #include <vector>
@@ -37,15 +36,6 @@ namespace rexglue::cli {
 namespace {
 
 namespace fs = std::filesystem;
-
-std::string ReadFile(const fs::path& path) {
-  std::ifstream in(path, std::ios::binary);
-  if (!in)
-    return {};
-  std::stringstream ss;
-  ss << in.rdbuf();
-  return ss.str();
-}
 
 struct AbsorbedManifest {
   fs::path manifest_path;
@@ -194,7 +184,7 @@ std::optional<AbsorbedManifest> AbsorbLegacyConfig(const fs::path& legacy_path) 
     out_directory_path = "generated/" + fs::path(file_path).stem().string();
   }
 
-  std::string legacy_content = ReadFile(legacy_path);
+  std::string legacy_content = read_file(legacy_path);
   if (legacy_content.empty()) {
     return std::nullopt;
   }
@@ -415,6 +405,45 @@ Result<void> ApplyPlanEntries(const std::vector<OverwriteEntry>& plan) {
   return rex::Ok();
 }
 
+void EmitWarnings(std::span<const MigrationWarning> warnings, std::string_view header) {
+  if (warnings.empty())
+    return;
+  REXLOG_WARN("{}", header);
+  for (const auto& w : warnings) {
+    REXLOG_WARN("  {}:{}: {}", w.file.generic_string(), w.line_number, w.detail);
+    if (!w.hint.empty())
+      REXLOG_WARN("           {}", w.hint);
+  }
+}
+
+/**
+ * Run the per-project scanners (drift, include rewrites, identifier renames)
+ * and return their combined findings. Each branch of CodegenFromConfig calls
+ * this with the appropriate project_dir; it lets us add new scanners in one
+ * place rather than threading them through three sites.
+ */
+MigrationFindings BuildProjectMigrationPlan(const fs::path& project_dir,
+                                            std::string_view project_name,
+                                            std::string_view sdk_version,
+                                            std::string_view entrypoint_out_dir) {
+  MigrationFindings out;
+  auto drift = ScanSdkTemplateDrift(project_dir, project_name, sdk_version, entrypoint_out_dir);
+  out.rewrites.insert(out.rewrites.end(), std::make_move_iterator(drift.begin()),
+                      std::make_move_iterator(drift.end()));
+  auto include_rewrites = ScanSourceIncludeRewrites(project_dir, project_name);
+  out.rewrites.insert(out.rewrites.end(), std::make_move_iterator(include_rewrites.begin()),
+                      std::make_move_iterator(include_rewrites.end()));
+  auto idents = ScanLegacyIdentifiers(project_dir);
+  out.rewrites.insert(out.rewrites.end(), std::make_move_iterator(idents.rewrites.begin()),
+                      std::make_move_iterator(idents.rewrites.end()));
+  out.warnings.insert(out.warnings.end(), std::make_move_iterator(idents.warnings.begin()),
+                      std::make_move_iterator(idents.warnings.end()));
+  auto callsite_warnings = ScanCallSitePatterns(project_dir);
+  out.warnings.insert(out.warnings.end(), std::make_move_iterator(callsite_warnings.begin()),
+                      std::make_move_iterator(callsite_warnings.end()));
+  return out;
+}
+
 void RunStaleIncludeScan(const fs::path& manifest_path,
                          const rex::codegen::ProjectRecompiler& recompiler) {
   std::unordered_set<std::string> written(recompiler.writtenFiles().begin(),
@@ -428,16 +457,10 @@ void RunStaleIncludeScan(const fs::path& manifest_path,
   if (removed.empty())
     return;
 
-  fs::path src_dir = manifest_path.parent_path() / "src";
-  auto matches = ScanForStaleIncludes(src_dir, removed);
-  if (matches.empty())
-    return;
-
-  REXLOG_WARN("{} source file(s) reference headers no longer emitted by codegen:", matches.size());
-  for (const auto& m : matches) {
-    REXLOG_WARN("  {}:{}: {}", m.file.generic_string(), m.line_number, m.raw_line);
-  }
-  REXLOG_WARN("These headers were emitted by older SDK versions. Update the includes by hand.");
+  auto matches = ScanStaleIncludes(manifest_path.parent_path() / "src", removed);
+  EmitWarnings(matches,
+               fmt::format("{} source file(s) reference headers no longer emitted by codegen:",
+                           matches.size()));
 }
 
 Result<void> RunManifest(const fs::path& manifest_path, const CliContext& ctx) {
@@ -517,7 +540,16 @@ Result<void> CodegenFromConfig(const std::string& config_path, const CliContext&
   // failure doesn't leave the project half-migrated.
   std::vector<OverwriteEntry> pre_plan;
   std::vector<OverwriteEntry> post_plan;
+  std::vector<MigrationWarning> pending_warnings;
   bool fresh_absorb = false;
+
+  auto absorb_findings = [&](MigrationFindings findings) {
+    post_plan.insert(post_plan.end(), std::make_move_iterator(findings.rewrites.begin()),
+                     std::make_move_iterator(findings.rewrites.end()));
+    pending_warnings.insert(pending_warnings.end(),
+                            std::make_move_iterator(findings.warnings.begin()),
+                            std::make_move_iterator(findings.warnings.end()));
+  };
 
   const std::string current_version = REXGLUE_VERSION_NUMERIC;
   std::string entrypoint_out_dir;
@@ -540,12 +572,8 @@ Result<void> CodegenFromConfig(const std::string& config_path, const CliContext&
     from_version = manifest->sdkVersion.value_or("");
     entrypoint_out_dir = manifest->entrypoint.recompiler.outDirectoryPath;
 
-    UpgradeDetect detect;
-    auto drift =
-        detect.Plan(manifest->manifestDir, project_name, current_version, entrypoint_out_dir);
-    post_plan.insert(post_plan.end(), drift.begin(), drift.end());
-    auto include_rewrites = detect.ScanSourceIncludeRewrites(manifest->manifestDir, project_name);
-    post_plan.insert(post_plan.end(), include_rewrites.begin(), include_rewrites.end());
+    absorb_findings(BuildProjectMigrationPlan(manifest->manifestDir, project_name, current_version,
+                                              entrypoint_out_dir));
   } else {
     fs::path legacy_path = config_path;
     auto absorbed = AbsorbLegacyConfig(legacy_path);
@@ -569,17 +597,13 @@ Result<void> CodegenFromConfig(const std::string& config_path, const CliContext&
       }
       from_version = manifest->sdkVersion.value_or("");
       entrypoint_out_dir = manifest->entrypoint.recompiler.outDirectoryPath;
-      UpgradeDetect detect;
-      auto drift =
-          detect.Plan(manifest->manifestDir, project_name, current_version, entrypoint_out_dir);
-      post_plan.insert(post_plan.end(), drift.begin(), drift.end());
-      auto include_rewrites = detect.ScanSourceIncludeRewrites(manifest->manifestDir, project_name);
-      post_plan.insert(post_plan.end(), include_rewrites.begin(), include_rewrites.end());
+      absorb_findings(BuildProjectMigrationPlan(manifest->manifestDir, project_name,
+                                                current_version, entrypoint_out_dir));
     } else {
       fresh_absorb = true;
       pre_plan.push_back({manifest_path, std::move(absorbed->manifest_content),
                           OverwriteAction::Write, /*silent=*/false,
-                          fmt::format("upgrade format to v{} standard", current_version)});
+                          fmt::format("upgrade format to v{}", current_version)});
       if (!absorbed->stripped_legacy_content.empty()) {
         post_plan.push_back({legacy_path, std::move(absorbed->stripped_legacy_content),
                              OverwriteAction::Write, /*silent=*/false,
@@ -589,20 +613,20 @@ Result<void> CodegenFromConfig(const std::string& config_path, const CliContext&
                              "absorbed into the new manifest"});
       }
 
-      UpgradeDetect detect;
       auto cmake_rewrites =
-          detect.ScanCmakeReferences(legacy_path.parent_path(), legacy_path.filename().string(),
-                                     manifest_path.filename().string());
-      post_plan.insert(post_plan.end(), cmake_rewrites.begin(), cmake_rewrites.end());
+          ScanCmakeReferences(legacy_path.parent_path(), legacy_path.filename().string(),
+                              manifest_path.filename().string());
+      post_plan.insert(post_plan.end(), std::make_move_iterator(cmake_rewrites.begin()),
+                       std::make_move_iterator(cmake_rewrites.end()));
 
-      auto drift =
-          detect.Plan(legacy_path.parent_path(), project_name, current_version, entrypoint_out_dir);
-      post_plan.insert(post_plan.end(), drift.begin(), drift.end());
-      auto include_rewrites =
-          detect.ScanSourceIncludeRewrites(legacy_path.parent_path(), project_name);
-      post_plan.insert(post_plan.end(), include_rewrites.begin(), include_rewrites.end());
+      absorb_findings(BuildProjectMigrationPlan(legacy_path.parent_path(), project_name,
+                                                current_version, entrypoint_out_dir));
     }
   }
+
+  EmitWarnings(pending_warnings,
+               fmt::format("{} site(s) need manual review (no safe auto-rewrite):",
+                           pending_warnings.size()));
 
   std::vector<OverwriteEntry> consent_view;
   consent_view.insert(consent_view.end(), pre_plan.begin(), pre_plan.end());

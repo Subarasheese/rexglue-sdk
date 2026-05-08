@@ -100,4 +100,11 @@ inline bool write_file(const std::filesystem::path& path, const std::string& con
   return true;
 }
 
+inline std::string read_file(const std::filesystem::path& path) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in)
+    return {};
+  return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
 }  // namespace rexglue::cli
