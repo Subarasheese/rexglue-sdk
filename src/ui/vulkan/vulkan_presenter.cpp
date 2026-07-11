@@ -2573,9 +2573,10 @@ VkPipeline VulkanPresenter::CreateGuestOutputPaintPipeline(GuestOutputPaintEffec
   multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
   VkPipelineColorBlendAttachmentState color_blend_attachment_state = {};
-  color_blend_attachment_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
-                                                VK_COLOR_COMPONENT_G_BIT |
-                                                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  // The host output is opaque. Keep the alpha initialized by the render-pass
+  // clear instead of copying the padding channel of the guest XRGB image.
+  color_blend_attachment_state.colorWriteMask =
+      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
   VkPipelineColorBlendStateCreateInfo color_blend_state = {};
   color_blend_state.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
   color_blend_state.attachmentCount = 1;

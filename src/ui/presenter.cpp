@@ -32,6 +32,8 @@
 
 REXCVAR_DEFINE_BOOL(host_present_from_non_ui_thread, true, "UI/Presenter",
                     "Allow presentation from non-UI thread");
+REXCVAR_DEFINE_BOOL(host_present_from_non_ui_thread_with_implicit_vsync, false, "UI/Presenter",
+                    "Allow presentation from non-UI thread when presentation waits for vsync");
 
 REXCVAR_DEFINE_BOOL(present_letterbox, true, "UI/Presenter",
                     "Enable letterboxing for non-native aspect ratios");
@@ -1317,7 +1319,8 @@ Presenter::PaintMode Presenter::GetDesiredPaintModeFromUIThread(bool is_paintabl
   if (!REXCVAR_GET(host_present_from_non_ui_thread)) {
     return PaintMode::kUIThreadOnRequest;
   }
-  if (surface_paint_connection_has_implicit_vsync_) {
+  if (surface_paint_connection_has_implicit_vsync_ &&
+      !REXCVAR_GET(host_present_from_non_ui_thread_with_implicit_vsync)) {
     // Don't be causing host vertical sync CPU waits in the thread generating
     // the guest output.
     return PaintMode::kUIThreadOnRequest;
